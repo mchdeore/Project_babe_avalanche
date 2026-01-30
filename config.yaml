@@ -1,0 +1,20 @@
+sports:
+  - basketball_nba
+  - americanfootball_nfl
+
+markets:
+  - h2h
+
+regions:
+  - us
+
+books:
+  - draftkings
+  - fanduel
+  - betmgm
+
+polling:
+  interval_seconds: 60
+
+storage:
+  database: odds.db
