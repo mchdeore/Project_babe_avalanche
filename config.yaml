@@ -1,20 +1,53 @@
+# Sports to ingest (Odds API sport keys)
 sports:
   - basketball_nba
-  - americanfootball_nfl
+  - basketball_ncaab
+  # - americanfootball_nfl
+  # - americanfootball_ncaaf
+  # - icehockey_nhl
+  # - baseball_mlb
+  # - soccer_epl
+  # - soccer_uefa_champs_league
+  # - soccer_usa_mls
+  # - tennis_atp
+  # - tennis_wta
+  # - golf_pga
+  # - mma_mixed_martial_arts
 
+# Markets you can realistically bet on in Ontario
 markets:
   - h2h
+  - spreads
+  - totals
+  # - alternate_spreads
+  # - alternate_totals
+  # - outrights
 
+# Regions to request (filter books explicitly)
 regions:
   - us
+  - ca
 
+# Ontario-licensed sportsbooks ONLY
 books:
   - draftkings
   - fanduel
   - betmgm
+  - pointsbet
+  - betrivers
+  - caesars
+  - sportsinteraction
+  # Optional / conditional
+  - betway
+  - coolbet
 
+# Polling settings
 polling:
   interval_seconds: 60
+  request_delay_seconds: 0
+  show_progress: true
+  ignore_sigint: true
 
+# Storage settings
 storage:
   database: odds.db

@@ -1,17 +1,24 @@
 # Project_babe_avalanche
-What are we doing in here? Don't worry about it just yet, it'll make sense when should. 
 
-API website: https://the-odds-api.com/#get-access 
-SMS messaging website: https://www.twilio.com/en-us/sms/pricing/us
+Lightweight odds ingestion using The Odds API and SQLite.
 
-Potential VPSL: https://www.digitalocean.com/?  utm_source=google&utm_medium=cpc&utm_campaign=search_us_en_brand&utm_adgroup=brand_do&utm_term=digital%20ocean&utm_creative=743532792446&utm_location=9001027&utm_matchtype=p&utm_device=c&gad_source=1&gad_campaignid=21702616935&gbraid=0AAAAADw9jctb1-QlykgZYRfTGZs-WpHp5&gclid=EAIaIQobChMIsMiEruOzkgMV_jYIBR0Ctgq6EAAYAiAAEgKZsvD_BwE
+## Quick start
+1) Activate the virtual environment:
+   - `source .venv/bin/activate`
+2) Run the ingest script:
+   - `python ingest_data.py`
 
-<<<<<<< HEAD
-Sheet with phases and statuses: https://docs.google.com/spreadsheets/d/19c7a3KguasrOAuzVB835iVoJ_xeXy9YuxIv_kUpT1-A/edit?usp=sharing
-=======
-------------------------------------
-env file in use to hide api keys
-venv used for version controll:
-    source .venv/bin/activate
-    python scripts/fetch_sportsbook_data.py
->>>>>>> 77eb9a0 (wip)
+## Configuration
+Edit `config.yaml` to control:
+- `sports` (Odds API sport keys)
+- `markets` and `regions`
+- database path
+
+Set your API key in `.env`:
+```
+ODDS_API_KEY=your_key_here
+
+## References
+- Odds API: https://the-odds-api.com/#get-access
+- Twilio SMS pricing: https://www.twilio.com/en-us/sms/pricing/us
+- Project tracker: https://docs.google.com/spreadsheets/d/19c7a3KguasrOAuzVB835iVoJ_xeXy9YuxIv_kUpT1-A/edit?usp=sharing
