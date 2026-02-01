@@ -44,7 +44,7 @@ books:
 # Polling settings
 polling:
   interval_seconds: 60
-  request_delay_seconds: 0
+  request_delay_seconds: 1
   show_progress: true
   ignore_sigint: true
 

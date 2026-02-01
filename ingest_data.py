@@ -82,6 +82,42 @@ def make_bet_id(game, market_key, outcome_name):
     return f"{date}_{league}_{outcome}_{market_key}"
 
 
+def iter_atomic_records(games, allowed_books: set, allowed_markets: set):
+    """Yield atomic bet + odds rows from a list of games."""
+    for game in games:
+        event_id = game["id"]
+        event_date = game["commence_time"][:10]
+        league = game["sport_key"]
+
+        for book in game.get("bookmakers", []):
+            sportsbook = book["key"]
+            if sportsbook not in allowed_books:
+                continue
+
+            last_update = book.get("last_update")
+
+            for market in book.get("markets", []):
+                market_key = market["key"]
+                if market_key not in allowed_markets:
+                    continue
+
+                for outcome in market.get("outcomes", []):
+                    outcome_name = outcome["name"]
+                    odds = outcome["price"]
+                    bet_id = make_bet_id(game, market_key, outcome_name)
+
+                    bet_row = (
+                        bet_id,
+                        league,
+                        event_id,
+                        market_key,
+                        outcome_name,
+                        event_date,
+                    )
+                    odds_row = (bet_id, sportsbook, odds, last_update)
+                    yield bet_row, odds_row
+
+
 def ingest() -> None:
     """Main ingest routine: fetch odds and upsert into SQLite."""
     load_dotenv()
@@ -126,47 +162,32 @@ def ingest() -> None:
                     if delay_seconds:
                         time.sleep(delay_seconds)
 
-                    for game in games:
-                        event_id = game["id"]
-                        event_date = game["commence_time"][:10]
-                        league = game["sport_key"]
+                    bet_rows = []
+                    odds_rows = []
 
-                        for book in game["bookmakers"]:
-                            sportsbook = book["key"]
-                            if sportsbook not in allowed_books:
-                                continue
+                    for bet_row, odds_row in iter_atomic_records(
+                        games, allowed_books, allowed_markets
+                    ):
+                        bet_rows.append(bet_row)
+                        current_key = (odds_row[0], odds_row[1])
+                        if current_key in seen_current:
+                            continue
+                        seen_current.add(current_key)
+                        odds_rows.append(odds_row)
 
-                            last_update = book["last_update"]
+                    if bet_rows:
+                        cur.executemany("""
+                            INSERT OR IGNORE INTO bets
+                            (bet_id, league, event_id, market, outcome, event_date)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, bet_rows)
 
-                            for market in book["markets"]:
-                                market_key = market["key"]
-                                if market_key not in allowed_markets:
-                                    continue
-
-                                for outcome in market["outcomes"]:
-                                    bet_id = make_bet_id(game, market_key, outcome["name"])
-                                    odds = outcome["price"]
-
-                                    cur.execute("""
-                                        INSERT OR IGNORE INTO bets
-                                        (bet_id, league, event_id, market, outcome, event_date)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    """, (
-                                        bet_id, league, event_id, market_key,
-                                        outcome["name"], event_date
-                                    ))
-
-                                    current_key = (bet_id, sportsbook)
-                                    if current_key in seen_current:
-                                        continue
-                                    seen_current.add(current_key)
-                                    cur.execute("""
-                                        INSERT INTO current_odds
-                                        (bet_id, sportsbook, odds, last_updated)
-                                        VALUES (?, ?, ?, ?)
-                                    """, (
-                                        bet_id, sportsbook, odds, last_update
-                                    ))
+                    if odds_rows:
+                        cur.executemany("""
+                            INSERT INTO current_odds
+                            (bet_id, sportsbook, odds, last_updated)
+                            VALUES (?, ?, ?, ?)
+                        """, odds_rows)
 
         cur.execute("""
             INSERT INTO odds_timeseries (bet_id, best_odds, observed_at)
