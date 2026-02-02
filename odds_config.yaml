@@ -51,25 +51,3 @@ polling:
 # Storage settings
 storage:
   database: odds.db
-  # If true, each ingest clears its own columns before writing fresh values.
-  # Leave false to avoid wiping data when one source is down.
-  reset_snapshot: true
-
-# Polymarket settings
-polymarket:
-  # Polymarket sport codes to ingest
-  sports:
-    - nba
-    - nhl
-
-  # Tag ID for game markets (per Polymarket docs)
-  tag_id: 100639
-
-  # Map Polymarket sport codes to Odds API league keys for canonical IDs
-  league_aliases:
-    nba: basketball_nba
-    nhl: icehockey_nhl
-
-  # Request tuning
-  limit: 200
-  request_delay_seconds: 0.1

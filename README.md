@@ -1,46 +1,61 @@
 # Project_babe_avalanche
 
-Lightweight odds ingestion using The Odds API and SQLite.
+Lightweight odds ingestion using The Odds API + Polymarket Gamma API, stored as snapshot rows in SQLite.
 
 ## Quick start
 1) Activate the virtual environment:
    - `source .venv/bin/activate`
-2) Run the ingest script:
+2) Run both ingests together:
    - `python ingest_data.py`
+3) Or run them individually:
+   - `python Ingest_odds_api.py`
+   - `python ingest_polymarket_api`
 
 ## Configuration
 Edit `config.yaml` to control:
-- `sports` (Odds API sport keys)
-- `markets` and `regions`
+- Odds API sports, markets, regions, and books
+- Polymarket sports and league aliases
 - database path
+- `reset_snapshot` (optional)
 
-Set your API key in `.env`:
+Set your Odds API key in `.env`:
 ```
 ODDS_API_KEY=your_key_here
 ```
 
 ## How data is stored
-The ingestion process flattens the API response from:
+This project uses a snapshot-only schema (no timeseries). The schema is designed for:
+- **One row per game + market**
+- **One column per book** (for odds and lines)
+- **Polymarket prices appended as columns**
 
-```
-sport → game → bookmaker → market → outcome
-```
+Tables:
+- **games_current**: canonical game identity (one row per game)
+- **game_market_current**: one row per game + market, with per-book columns added dynamically
+- **game_market_history**: empty timeseries table (not populated yet)
 
-into atomic bet records (one outcome × one market × one sportsbook × one event).
+### Column strategy (game_market_current)
+Each book adds these columns dynamically:
+- `home_odds_<book>` / `away_odds_<book>`
+- `home_line_<book>` / `away_line_<book>`
+- `over_odds_<book>` / `under_odds_<book>`
+- `total_line_<book>`
 
-Data is stored in three tables:
-- **bets**: identity table (one row per logical bet). Inserted once and reused.
-- **current_odds**: snapshot table (one row per bet × sportsbook for the latest run only).
-- **odds_timeseries**: history table (one row per bet per run, storing best odds across books).
+Polymarket adds:
+- `pm_home_price`, `pm_away_price`
+- `pm_over_price`, `pm_under_price`
+- `pm_market_id`, `pm_event_id`, `pm_updated_at`
 
-### Flattening helper
-The function `iter_atomic_records(...)` walks the nested response and yields:
-- a **bet row** for the `bets` table
-- an **odds row** for the `current_odds` table
+### Snapshot behavior
+If `storage.reset_snapshot` is `true`, each ingest resets its own columns to `NULL`
+before writing fresh values:
+- Odds ingest resets only book-related columns
+- Polymarket ingest resets only `pm_*` columns
 
-These rows are inserted in batches with `executemany` for cleaner and faster writes.
+This keeps the latest snapshot without deleting rows. You can disable resets by setting
+`storage.reset_snapshot` to `false` in `config.yaml` if you want to preserve the last
+known values when one source is down.
 
-## References
-- Odds API: https://the-odds-api.com/#get-access
-- Twilio SMS pricing: https://www.twilio.com/en-us/sms/pricing/us
-- Project tracker: https://docs.google.com/spreadsheets/d/19c7a3KguasrOAuzVB835iVoJ_xeXy9YuxIv_kUpT1-A/edit?usp=sharing
+## Notes
+- The Polymarket ingest uses `tag_id` to filter to sports game markets.
+- Canonical game IDs are generated from date + league + normalized team names.
