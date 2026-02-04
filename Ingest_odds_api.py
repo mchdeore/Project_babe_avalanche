@@ -13,12 +13,12 @@ from dotenv import load_dotenv
 
 from ingest_utils import (
     canonical_game_id,
-    ensure_book_columns,
     load_config,
     normalize_team,
     init_db,
     upsert_rows,
     utc_now_iso,
+    within_bettable_window,
 )
 
 # ------------------
@@ -87,6 +87,7 @@ def ingest() -> None:
     reset_snapshot = config.get("storage", {}).get("reset_snapshot", False)
     polling_cfg = config.get("polling", {})
     now = utc_now_iso()
+    window_days = int(config.get("bettable_window_days", 5))
 
     if polling_cfg.get("ignore_sigint"):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -97,30 +98,22 @@ def ingest() -> None:
     conn = init_db(db_path, SCHEMA_PATH)
     try:
         cur = conn.cursor()
-        allowed_books = list(config["books"])
+        allowed_books = set(config["books"])
         allowed_markets = set(config["markets"])
-        book_cols = ensure_book_columns(conn, allowed_books, table="game_market_current")
 
         # Snapshot reset (optional) for Odds API columns only.
         if reset_snapshot:
-            odds_columns = [
-                "odds_updated_at",
-                *[col for cols in book_cols.values() for col in cols.values()],
-            ]
-            if odds_columns:
-                cur.execute(
-                    "UPDATE game_market_current SET "
-                    + ", ".join([f'"{col}"=NULL' for col in odds_columns])
-                )
+            cur.execute("DELETE FROM odds_prices;")
 
         games_rows: dict[str, dict] = {}
-        market_rows: dict[tuple[str, str], dict] = {}
+        odds_rows: list[dict] = []
         total_games = 0
         total_requests = len(config["sports"]) * len(config["markets"])
         request_count = 0
         seen_books: set[str] = set()
         matched_books: set[str] = set()
-        market_row_count = 0
+        price_row_count = 0
+        skipped_outside_window = 0
 
         with requests.Session() as session:
             delay_seconds = polling_cfg.get("request_delay_seconds", 0)
@@ -150,6 +143,10 @@ def ingest() -> None:
                         if not home_team or not away_team or not commence_time or not league:
                             continue
 
+                        if not within_bettable_window(commence_time, window_days):
+                            skipped_outside_window += 1
+                            continue
+
                         date_str = commence_time[:10]
                         game_id = canonical_game_id(league, home_team, away_team, date_str)
 
@@ -167,7 +164,7 @@ def ingest() -> None:
                             sportsbook = book.get("key")
                             if sportsbook:
                                 seen_books.add(sportsbook)
-                            if sportsbook not in book_cols:
+                            if sportsbook not in allowed_books:
                                 continue
                             matched_books.add(sportsbook)
 
@@ -175,16 +172,6 @@ def ingest() -> None:
                                 market_key = market.get("key")
                                 if market_key not in allowed_markets:
                                     continue
-
-                                row_key = (game_id, market_key)
-                                if row_key not in market_rows:
-                                    market_row_count += 1
-                                    market_rows[row_key] = {
-                                        "game_id": game_id,
-                                        "market": market_key,
-                                        "odds_updated_at": now,
-                                    }
-                                row = market_rows[row_key]
 
                                 for outcome in market.get("outcomes", []):
                                     outcome_name = outcome.get("name")
@@ -194,28 +181,66 @@ def ingest() -> None:
                                     if outcome_name is None or odds is None:
                                         continue
 
-                                    cols = book_cols[sportsbook]
-
                                     if market_key in {"h2h", "spreads"}:
                                         side = match_side(outcome_name, home_team, away_team)
                                         if side == "home":
-                                            row[cols["home_odds"]] = odds
-                                            row[cols["home_line"]] = point
+                                            odds_rows.append(
+                                                {
+                                                    "game_id": game_id,
+                                                    "market": market_key,
+                                                    "sportsbook": sportsbook,
+                                                    "side": "home",
+                                                    "odds": odds,
+                                                    "line": point,
+                                                    "odds_updated_at": now,
+                                                }
+                                            )
+                                            price_row_count += 1
                                         elif side == "away":
-                                            row[cols["away_odds"]] = odds
-                                            row[cols["away_line"]] = point
+                                            odds_rows.append(
+                                                {
+                                                    "game_id": game_id,
+                                                    "market": market_key,
+                                                    "sportsbook": sportsbook,
+                                                    "side": "away",
+                                                    "odds": odds,
+                                                    "line": point,
+                                                    "odds_updated_at": now,
+                                                }
+                                            )
+                                            price_row_count += 1
                                     elif market_key == "totals":
                                         outcome_lower = str(outcome_name).strip().lower()
                                         if outcome_lower == "over":
-                                            row[cols["over_odds"]] = odds
-                                            row[cols["total_line"]] = point
+                                            odds_rows.append(
+                                                {
+                                                    "game_id": game_id,
+                                                    "market": market_key,
+                                                    "sportsbook": sportsbook,
+                                                    "side": "over",
+                                                    "odds": odds,
+                                                    "line": point,
+                                                    "odds_updated_at": now,
+                                                }
+                                            )
+                                            price_row_count += 1
                                         elif outcome_lower == "under":
-                                            row[cols["under_odds"]] = odds
-                                            row[cols["total_line"]] = point
+                                            odds_rows.append(
+                                                {
+                                                    "game_id": game_id,
+                                                    "market": market_key,
+                                                    "sportsbook": sportsbook,
+                                                    "side": "under",
+                                                    "odds": odds,
+                                                    "line": point,
+                                                    "odds_updated_at": now,
+                                                }
+                                            )
+                                            price_row_count += 1
 
         upsert_rows(
             conn,
-            table="games_current",
+            table="games",
             key_cols=["game_id"],
             update_cols=[
                 "league",
@@ -228,16 +253,12 @@ def ingest() -> None:
             rows=games_rows.values(),
         )
 
-        odds_update_cols = [
-            "odds_updated_at",
-            *[col for cols in book_cols.values() for col in cols.values()],
-        ]
         upsert_rows(
             conn,
-            table="game_market_current",
-            key_cols=["game_id", "market"],
-            update_cols=odds_update_cols,
-            rows=market_rows.values(),
+            table="odds_prices",
+            key_cols=["game_id", "market", "sportsbook", "side"],
+            update_cols=["odds", "line", "odds_updated_at"],
+            rows=odds_rows,
         )
 
         conn.commit()
@@ -246,7 +267,8 @@ def ingest() -> None:
 
     print("Odds API summary:")
     print(f"  total games: {total_games}")
-    print(f"  market rows written: {market_row_count}")
+    print(f"  price rows written: {price_row_count}")
+    print(f"  skipped outside window: {skipped_outside_window}")
     print(f"  books seen: {sorted(seen_books)}")
     print(f"  books matched config: {sorted(matched_books)}")
     print("Odds API ingestion complete.")

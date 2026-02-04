@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Iterable
+from typing import Any
 
 import requests
 
@@ -16,6 +16,7 @@ from ingest_utils import (
     init_db,
     upsert_rows,
     utc_now_iso,
+    within_bettable_window,
 )
 
 API_BASE = "https://gamma-api.polymarket.com"
@@ -76,11 +77,6 @@ def parse_matchup(text: str) -> tuple[str, str] | None:
     return None
 
 
-def chunked(values: list[str], size: int) -> Iterable[list[str]]:
-    for i in range(0, len(values), size):
-        yield values[i : i + size]
-
-
 def ingest() -> None:
     config = load_config(CONFIG_PATH)
     pm_cfg = config.get("polymarket", {})
@@ -92,6 +88,9 @@ def ingest() -> None:
     db_path = config["storage"]["database"]
     reset_snapshot = config.get("storage", {}).get("reset_snapshot", False)
     now = utc_now_iso()
+    window_days = int(config.get("bettable_window_days", 5))
+    debug = bool(pm_cfg.get("debug", False))
+    use_date_only = bool(pm_cfg.get("use_date_only", True))
     tag_id = pm_cfg.get("tag_id", 100639)
     limit = int(pm_cfg.get("limit", 200))
     delay_seconds = pm_cfg.get("request_delay_seconds", 0)
@@ -100,32 +99,29 @@ def ingest() -> None:
     conn = init_db(db_path, SCHEMA_PATH)
     try:
         cur = conn.cursor()
-        pm_columns = [
-            "pm_home_price",
-            "pm_away_price",
-            "pm_over_price",
-            "pm_under_price",
-            "pm_market_id",
-            "pm_event_id",
-            "pm_updated_at",
-        ]
         if reset_snapshot:
-            cur.execute(
-                "UPDATE game_market_current SET "
-                + ", ".join([f'"{col}"=NULL' for col in pm_columns])
-            )
+            cur.execute("DELETE FROM pm_prices;")
 
         games_rows: dict[str, dict] = {}
-        market_rows: dict[tuple[str, str], dict] = {}
+        pm_rows: list[dict] = []
 
         total_events = 0
         matched_markets = 0
-        market_row_count = 0
+        price_row_count = 0
         skipped_yes_no = 0
         skipped_non_matchup = 0
+        skipped_outside_window = 0
+        missing_start_date = 0
+        skipped_inactive_market = 0
+        sample_start_dates: list[str] = []
+        min_start: str | None = None
+        max_start: str | None = None
         with requests.Session() as session:
             sports_meta = fetch_json(session, "/sports")
             meta_by_code = {item.get("sport"): item for item in sports_meta}
+            if debug:
+                print(f"Polymarket debug: now={now} window_days={window_days}")
+                print(f"Polymarket debug: sports={sports}")
 
             for sport_code in sports:
                 meta = meta_by_code.get(sport_code)
@@ -155,11 +151,28 @@ def ingest() -> None:
                     for event in events:
                         start_date = event.get("startDate")
                         if not start_date:
+                            missing_start_date += 1
+                            continue
+                        effective_time = start_date
+                        if use_date_only:
+                            effective_time = start_date[:10]
+                        if debug and len(sample_start_dates) < 5:
+                            sample_start_dates.append(start_date)
+                        if debug:
+                            if min_start is None or start_date < min_start:
+                                min_start = start_date
+                            if max_start is None or start_date > max_start:
+                                max_start = start_date
+                        if not within_bettable_window(effective_time, window_days):
+                            skipped_outside_window += 1
                             continue
                         date_str = start_date[:10]
 
                         markets = event.get("markets", [])
                         for market in markets:
+                            if market.get("active") is False or market.get("closed") is True:
+                                skipped_inactive_market += 1
+                                continue
                             outcomes = parse_list(market.get("outcomes"))
                             prices = parse_list(market.get("outcomePrices"))
                             if len(outcomes) != len(prices) or len(outcomes) < 2:
@@ -205,26 +218,12 @@ def ingest() -> None:
                             games_rows[game_id] = {
                                 "game_id": game_id,
                                 "league": league_key,
-                                "polymarket_event_id": event.get("id"),
+                                "pm_event_id": event.get("id"),
                                 "commence_time": start_date,
                                 "home_team": home_team,
                                 "away_team": away_team,
                                 "last_updated": now,
                             }
-
-                            row_key = (game_id, market_key)
-                            if row_key not in market_rows:
-                                market_row_count += 1
-                                market_rows[row_key] = {
-                                    "game_id": game_id,
-                                    "market": market_key,
-                                    "pm_market_id": market.get("id"),
-                                    "pm_event_id": event.get("id"),
-                                    "pm_updated_at": market.get("updatedAt")
-                                    or event.get("updatedAt")
-                                    or now,
-                                }
-                            row = market_rows[row_key]
                             matched_markets += 1
 
                             for outcome, price in zip(outcomes, prices):
@@ -236,15 +235,67 @@ def ingest() -> None:
                                 if market_key == "totals":
                                     outcome_lower = str(outcome).strip().lower()
                                     if outcome_lower == "over":
-                                        row["pm_over_price"] = price_val
+                                        pm_rows.append(
+                                            {
+                                                "game_id": game_id,
+                                                "market": market_key,
+                                                "side": "over",
+                                                "price": price_val,
+                                                "pm_market_id": market.get("id"),
+                                                "pm_event_id": event.get("id"),
+                                                "pm_updated_at": market.get("updatedAt")
+                                                or event.get("updatedAt")
+                                                or now,
+                                            }
+                                        )
+                                        price_row_count += 1
                                     elif outcome_lower == "under":
-                                        row["pm_under_price"] = price_val
+                                        pm_rows.append(
+                                            {
+                                                "game_id": game_id,
+                                                "market": market_key,
+                                                "side": "under",
+                                                "price": price_val,
+                                                "pm_market_id": market.get("id"),
+                                                "pm_event_id": event.get("id"),
+                                                "pm_updated_at": market.get("updatedAt")
+                                                or event.get("updatedAt")
+                                                or now,
+                                            }
+                                        )
+                                        price_row_count += 1
                                 else:
                                     side = match_side(outcome, home_team, away_team)
                                     if side == "home":
-                                        row["pm_home_price"] = price_val
+                                        pm_rows.append(
+                                            {
+                                                "game_id": game_id,
+                                                "market": market_key,
+                                                "side": "home",
+                                                "price": price_val,
+                                                "pm_market_id": market.get("id"),
+                                                "pm_event_id": event.get("id"),
+                                                "pm_updated_at": market.get("updatedAt")
+                                                or event.get("updatedAt")
+                                                or now,
+                                            }
+                                        )
+                                        price_row_count += 1
                                     elif side == "away":
-                                        row["pm_away_price"] = price_val
+                                        pm_rows.append(
+                                            {
+                                                "game_id": game_id,
+                                                "market": market_key,
+                                                "side": "away",
+                                                "price": price_val,
+                                                "pm_market_id": market.get("id"),
+                                                "pm_event_id": event.get("id"),
+                                                "pm_updated_at": market.get("updatedAt")
+                                                or event.get("updatedAt")
+                                                or now,
+                                            }
+                                        )
+                                        price_row_count += 1
 
                     if len(events) < limit:
                         break
@@ -252,38 +303,13 @@ def ingest() -> None:
                     if delay_seconds:
                         time.sleep(delay_seconds)
 
-        if games_rows:
-            existing_ids = list(games_rows.keys())
-            for chunk in chunked(existing_ids, 900):
-                placeholders = ",".join(["?"] * len(chunk))
-                rows = conn.execute(
-                    f"""
-                    SELECT game_id, league, commence_time, home_team, away_team
-                    FROM games_current
-                    WHERE game_id IN ({placeholders})
-                    """,
-                    chunk,
-                ).fetchall()
-                for game_id, league, commence_time, home_team, away_team in rows:
-                    row = games_rows.get(game_id)
-                    if not row:
-                        continue
-                    if league is not None:
-                        row["league"] = league
-                    if commence_time is not None:
-                        row["commence_time"] = commence_time
-                    if home_team is not None:
-                        row["home_team"] = home_team
-                    if away_team is not None:
-                        row["away_team"] = away_team
-
         upsert_rows(
             conn,
-            table="games_current",
+            table="games",
             key_cols=["game_id"],
             update_cols=[
                 "league",
-                "polymarket_event_id",
+                "pm_event_id",
                 "commence_time",
                 "home_team",
                 "away_team",
@@ -294,10 +320,10 @@ def ingest() -> None:
 
         upsert_rows(
             conn,
-            table="game_market_current",
-            key_cols=["game_id", "market"],
-            update_cols=pm_columns,
-            rows=market_rows.values(),
+            table="pm_prices",
+            key_cols=["game_id", "market", "side"],
+            update_cols=["price", "pm_market_id", "pm_event_id", "pm_updated_at"],
+            rows=pm_rows,
         )
 
         conn.commit()
@@ -307,9 +333,16 @@ def ingest() -> None:
     print("Polymarket summary:")
     print(f"  total events fetched: {total_events}")
     print(f"  matched markets: {matched_markets}")
-    print(f"  market rows written: {market_row_count}")
+    print(f"  price rows written: {price_row_count}")
+    print(f"  skipped outside window: {skipped_outside_window}")
     print(f"  skipped yes/no markets: {skipped_yes_no}")
     print(f"  skipped non-matchup markets: {skipped_non_matchup}")
+    print(f"  skipped inactive markets: {skipped_inactive_market}")
+    print(f"  missing startDate: {missing_start_date}")
+    if debug:
+        print(f"  sample startDate values: {sample_start_dates}")
+        print(f"  min startDate: {min_start}")
+        print(f"  max startDate: {max_start}")
     print("Polymarket ingestion complete.")
 
 

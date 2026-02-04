@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 import yaml
@@ -53,37 +53,45 @@ def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in cur.fetchall()}
 
 
-def ensure_book_columns(
-    conn: sqlite3.Connection,
-    books: Iterable[str],
-    table: str = "game_market_current",
-) -> dict[str, dict[str, str]]:
-    """Ensure per-book odds/line columns exist in the current snapshot table.
+def parse_iso_utc(value: str) -> datetime | None:
+    if not value:
+        return None
+    if value.endswith("Z"):
+        value = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
-    Returns a mapping of book -> column name mapping.
-    """
-    existing = get_table_columns(conn, table)
-    book_map: dict[str, dict[str, str]] = {}
 
-    for book in books:
-        safe = sanitize_column(book)
-        cols = {
-            "home_odds": f"home_odds_{safe}",
-            "away_odds": f"away_odds_{safe}",
-            "home_line": f"home_line_{safe}",
-            "away_line": f"away_line_{safe}",
-            "over_odds": f"over_odds_{safe}",
-            "under_odds": f"under_odds_{safe}",
-            "total_line": f"total_line_{safe}",
-        }
-        for col in cols.values():
-            if col not in existing:
-                conn.execute(f'ALTER TABLE {table} ADD COLUMN "{col}" REAL;')
-                existing.add(col)
-        book_map[book] = cols
+def within_bettable_window(
+    commence_time: str,
+    window_days: int,
+    now: datetime | None = None,
+) -> bool:
+    if not commence_time:
+        return False
+    now = now or datetime.now(timezone.utc)
 
-    conn.commit()
-    return book_map
+    # If the string is date-only (e.g., "2026-02-04"), compare by date
+    # so we don't exclude same-day games due to missing time info.
+    if len(commence_time.strip()) <= 10:
+        try:
+            game_date = datetime.fromisoformat(commence_time.strip()).date()
+        except ValueError:
+            return False
+        today = now.date()
+        return today <= game_date <= (today + timedelta(days=window_days))
+
+    dt = parse_iso_utc(commence_time)
+    if dt is None:
+        return False
+    if dt < now:
+        return False
+    return dt <= now + timedelta(days=window_days)
 
 
 def upsert_rows(
@@ -119,3 +127,18 @@ def upsert_rows(
         data.append([row.get(c) for c in cols])
 
     conn.executemany(sql, data)
+
+
+def insert_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: list[str],
+    rows: Iterable[tuple],
+) -> None:
+    rows = list(rows)
+    if not rows:
+        return
+    quoted_cols = ", ".join([f'"{c}"' for c in columns])
+    placeholders = ", ".join(["?"] * len(columns))
+    sql = f"INSERT INTO {table} ({quoted_cols}) VALUES ({placeholders});"
+    conn.executemany(sql, rows)

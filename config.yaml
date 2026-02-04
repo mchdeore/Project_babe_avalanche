@@ -2,9 +2,9 @@
 sports:
   - basketball_nba
   # - basketball_ncaab
-  # - americanfootball_nfl
+  - americanfootball_nfl
   # - americanfootball_ncaaf
-  - icehockey_nhl
+  # - icehockey_nhl
   # - baseball_mlb
   # - soccer_epl
   # - soccer_uefa_champs_league
@@ -55,12 +55,19 @@ storage:
   # Leave false to avoid wiping data when one source is down.
   reset_snapshot: true
 
+# Bettable window (days ahead from now)
+bettable_window_days: 30
+
 # Polymarket settings
 polymarket:
   # Polymarket sport codes to ingest
   sports:
     - nba
     - nhl
+  # Enable extra debug output
+  debug: true
+  # Use date-only filtering for bettable window
+  use_date_only: true
 
   # Tag ID for game markets (per Polymarket docs)
   tag_id: 100639

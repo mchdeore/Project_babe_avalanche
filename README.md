@@ -24,37 +24,36 @@ ODDS_API_KEY=your_key_here
 ```
 
 ## How data is stored
-This project uses a snapshot-only schema (no timeseries). The schema is designed for:
-- **One row per game + market**
-- **One column per book** (for odds and lines)
-- **Polymarket prices appended as columns**
+This project uses a snapshot-only schema (no timeseries yet). The schema is designed for:
+- **One canonical game row**
+- **Tall prices tables** (one row per market + side + source)
 
 Tables:
-- **games_current**: canonical game identity (one row per game)
-- **game_market_current**: one row per game + market, with per-book columns added dynamically
-- **game_market_history**: empty timeseries table (not populated yet)
+- **games**: canonical game identity (one row per game)
+- **odds_prices**: Odds API prices (one row per game + market + sportsbook + side)
+- **pm_prices**: Polymarket prices (one row per game + market + side)
 
-### Column strategy (game_market_current)
-Each book adds these columns dynamically:
-- `home_odds_<book>` / `away_odds_<book>`
-- `home_line_<book>` / `away_line_<book>`
-- `over_odds_<book>` / `under_odds_<book>`
-- `total_line_<book>`
+### Column strategy
+`odds_prices` columns:
+- `game_id`, `market`, `sportsbook`, `side`, `odds`, `line`, `odds_updated_at`
 
-Polymarket adds:
-- `pm_home_price`, `pm_away_price`
-- `pm_over_price`, `pm_under_price`
-- `pm_market_id`, `pm_event_id`, `pm_updated_at`
+`pm_prices` columns:
+- `game_id`, `market`, `side`, `price`, `pm_market_id`, `pm_event_id`, `pm_updated_at`
 
 ### Snapshot behavior
-If `storage.reset_snapshot` is `true`, each ingest resets its own columns to `NULL`
+If `storage.reset_snapshot` is `true`, each ingest resets its own price table
 before writing fresh values:
-- Odds ingest resets only book-related columns
-- Polymarket ingest resets only `pm_*` columns
+- Odds ingest resets `odds_prices`
+- Polymarket ingest resets `pm_prices`
 
 This keeps the latest snapshot without deleting rows. You can disable resets by setting
 `storage.reset_snapshot` to `false` in `config.yaml` if you want to preserve the last
 known values when one source is down.
+
+If you want a clean rebuild of the schema, delete `odds.db` before running an ingest.
+
+## Bettable window
+Only games whose `commence_time` is within `bettable_window_days` from now are ingested.
 
 ## Notes
 - The Polymarket ingest uses `tag_id` to filter to sports game markets.
