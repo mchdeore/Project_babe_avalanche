@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-"""
-Pull odds data from The Odds API and store snapshot rows in SQLite.
-"""
+"""Pull Odds API data and upsert latest rows into SQLite."""
 
 import os
 import signal
@@ -13,6 +11,7 @@ from dotenv import load_dotenv
 
 from ingest_utils import (
     canonical_game_id,
+    implied_prob_from_price,
     load_config,
     normalize_team,
     init_db,
@@ -37,7 +36,7 @@ def fetch_odds(
     sport: str,
     market_key: str,
 ):
-    """Fetch odds for a single sport/market. Returns [] if the combo is unsupported."""
+    """Fetch odds for a single sport/market; returns [] if unsupported."""
     url = f"{API_URL_BASE}/{sport}/odds"
     params = {
         "apiKey": api_key,
@@ -67,16 +66,33 @@ def fetch_odds(
 
 
 def match_side(outcome_name: str, home_team: str, away_team: str) -> str | None:
+    """Map outcome names to home/away/draw sides."""
     outcome_norm = normalize_team(outcome_name)
-    if outcome_norm == normalize_team(home_team):
+    home_norm = normalize_team(home_team)
+    away_norm = normalize_team(away_team)
+    if outcome_norm == home_norm or home_norm in outcome_norm:
         return "home"
-    if outcome_norm == normalize_team(away_team):
+    if outcome_norm == away_norm or away_norm in outcome_norm:
         return "away"
+    if outcome_norm in {"draw", "tie", "x"}:
+        return "draw"
     return None
 
 
+def line_value(market_key: str, point: float | None) -> float | None:
+    """Normalize line values so the primary key is never NULL."""
+    if market_key == "h2h":
+        return 0.0
+    if point is None:
+        return None
+    try:
+        return float(point)
+    except (TypeError, ValueError):
+        return None
+
+
 def ingest() -> None:
-    """Main ingest routine: fetch odds and upsert into SQLite."""
+    """Fetch odds and upsert the latest rows into SQLite."""
     load_dotenv()
     api_key = os.getenv(API_KEY_ENV)
     if not api_key:
@@ -84,7 +100,6 @@ def ingest() -> None:
 
     config = load_config(CONFIG_PATH)
     db_path = config["storage"]["database"]
-    reset_snapshot = config.get("storage", {}).get("reset_snapshot", False)
     polling_cfg = config.get("polling", {})
     now = utc_now_iso()
     window_days = int(config.get("bettable_window_days", 5))
@@ -97,13 +112,8 @@ def ingest() -> None:
     # ------------------
     conn = init_db(db_path, SCHEMA_PATH)
     try:
-        cur = conn.cursor()
         allowed_books = set(config["books"])
         allowed_markets = set(config["markets"])
-
-        # Snapshot reset (optional) for Odds API columns only.
-        if reset_snapshot:
-            cur.execute("DELETE FROM odds_prices;")
 
         games_rows: dict[str, dict] = {}
         odds_rows: list[dict] = []
@@ -153,11 +163,10 @@ def ingest() -> None:
                         games_rows[game_id] = {
                             "game_id": game_id,
                             "league": league,
-                            "odds_event_id": event_id,
                             "commence_time": commence_time,
                             "home_team": home_team,
                             "away_team": away_team,
-                            "last_updated": now,
+                            "last_refreshed": now,
                         }
 
                         for book in game.get("bookmakers", []):
@@ -167,6 +176,7 @@ def ingest() -> None:
                             if sportsbook not in allowed_books:
                                 continue
                             matched_books.add(sportsbook)
+                            provider_updated_at = book.get("last_update") or now
 
                             for market in book.get("markets", []):
                                 market_key = market.get("key")
@@ -180,6 +190,11 @@ def ingest() -> None:
 
                                     if outcome_name is None or odds is None:
                                         continue
+                                    implied_prob = implied_prob_from_price(odds)
+
+                                    line = line_value(market_key, point)
+                                    if line is None:
+                                        continue
 
                                     if market_key in {"h2h", "spreads"}:
                                         side = match_side(outcome_name, home_team, away_team)
@@ -188,11 +203,17 @@ def ingest() -> None:
                                                 {
                                                     "game_id": game_id,
                                                     "market": market_key,
-                                                    "sportsbook": sportsbook,
                                                     "side": "home",
-                                                    "odds": odds,
-                                                    "line": point,
-                                                    "odds_updated_at": now,
+                                                    "line": line,
+                                                    "source": "odds",
+                                                    "provider": sportsbook,
+                                                    "price": odds,
+                                                    "implied_prob": implied_prob,
+                                                    "provider_updated_at": provider_updated_at,
+                                                    "last_refreshed": now,
+                                                    "source_event_id": event_id,
+                                                    "source_market_id": None,
+                                                    "outcome": outcome_name,
                                                 }
                                             )
                                             price_row_count += 1
@@ -201,11 +222,36 @@ def ingest() -> None:
                                                 {
                                                     "game_id": game_id,
                                                     "market": market_key,
-                                                    "sportsbook": sportsbook,
                                                     "side": "away",
-                                                    "odds": odds,
-                                                    "line": point,
-                                                    "odds_updated_at": now,
+                                                    "line": line,
+                                                    "source": "odds",
+                                                    "provider": sportsbook,
+                                                    "price": odds,
+                                                    "implied_prob": implied_prob,
+                                                    "provider_updated_at": provider_updated_at,
+                                                    "last_refreshed": now,
+                                                    "source_event_id": event_id,
+                                                    "source_market_id": None,
+                                                    "outcome": outcome_name,
+                                                }
+                                            )
+                                            price_row_count += 1
+                                        elif side == "draw":
+                                            odds_rows.append(
+                                                {
+                                                    "game_id": game_id,
+                                                    "market": market_key,
+                                                    "side": "draw",
+                                                    "line": line,
+                                                    "source": "odds",
+                                                    "provider": sportsbook,
+                                                    "price": odds,
+                                                    "implied_prob": implied_prob,
+                                                    "provider_updated_at": provider_updated_at,
+                                                    "last_refreshed": now,
+                                                    "source_event_id": event_id,
+                                                    "source_market_id": None,
+                                                    "outcome": outcome_name,
                                                 }
                                             )
                                             price_row_count += 1
@@ -216,11 +262,17 @@ def ingest() -> None:
                                                 {
                                                     "game_id": game_id,
                                                     "market": market_key,
-                                                    "sportsbook": sportsbook,
                                                     "side": "over",
-                                                    "odds": odds,
-                                                    "line": point,
-                                                    "odds_updated_at": now,
+                                                    "line": line,
+                                                    "source": "odds",
+                                                    "provider": sportsbook,
+                                                    "price": odds,
+                                                    "implied_prob": implied_prob,
+                                                    "provider_updated_at": provider_updated_at,
+                                                    "last_refreshed": now,
+                                                    "source_event_id": event_id,
+                                                    "source_market_id": None,
+                                                    "outcome": outcome_name,
                                                 }
                                             )
                                             price_row_count += 1
@@ -229,11 +281,17 @@ def ingest() -> None:
                                                 {
                                                     "game_id": game_id,
                                                     "market": market_key,
-                                                    "sportsbook": sportsbook,
                                                     "side": "under",
-                                                    "odds": odds,
-                                                    "line": point,
-                                                    "odds_updated_at": now,
+                                                    "line": line,
+                                                    "source": "odds",
+                                                    "provider": sportsbook,
+                                                    "price": odds,
+                                                    "implied_prob": implied_prob,
+                                                    "provider_updated_at": provider_updated_at,
+                                                    "last_refreshed": now,
+                                                    "source_event_id": event_id,
+                                                    "source_market_id": None,
+                                                    "outcome": outcome_name,
                                                 }
                                             )
                                             price_row_count += 1
@@ -244,20 +302,27 @@ def ingest() -> None:
             key_cols=["game_id"],
             update_cols=[
                 "league",
-                "odds_event_id",
                 "commence_time",
                 "home_team",
                 "away_team",
-                "last_updated",
+                "last_refreshed",
             ],
             rows=games_rows.values(),
         )
 
         upsert_rows(
             conn,
-            table="odds_prices",
-            key_cols=["game_id", "market", "sportsbook", "side"],
-            update_cols=["odds", "line", "odds_updated_at"],
+            table="market_latest",
+            key_cols=["game_id", "market", "side", "line", "source", "provider"],
+            update_cols=[
+                "price",
+                "implied_prob",
+                "provider_updated_at",
+                "last_refreshed",
+                "source_event_id",
+                "source_market_id",
+                "outcome",
+            ],
             rows=odds_rows,
         )
 

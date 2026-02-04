@@ -51,8 +51,7 @@ polling:
 # Storage settings
 storage:
   database: odds.db
-  # If true, each ingest clears its own columns before writing fresh values.
-  # Leave false to avoid wiping data when one source is down.
+  # reset_snapshot is deprecated (latest-only upserts do not delete rows).
   reset_snapshot: true
 
 # Bettable window (days ahead from now)
@@ -64,6 +63,11 @@ polymarket:
   sports:
     - nba
     - nhl
+  # Market types to store (fallbacks to top-level markets if omitted)
+  markets:
+    - h2h
+    - spreads
+    - totals
   # Enable extra debug output
   debug: true
   # Use date-only filtering for bettable window

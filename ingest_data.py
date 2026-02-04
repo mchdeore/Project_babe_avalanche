@@ -7,6 +7,7 @@ from ingest_polymarket_api import ingest as ingest_polymarket
 
 
 def main() -> None:
+    """Run Odds API and Polymarket ingests sequentially."""
     print("=== Odds API ingest ===")
     ingest_odds()
     print("=== Polymarket ingest ===")
