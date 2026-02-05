@@ -1,9 +1,7 @@
+"""Pull Odds API data and upsert latest rows into SQLite."""
 from __future__ import annotations
 
-"""Pull Odds API data and upsert latest rows into SQLite."""
-
 import os
-import signal
 import time
 
 import requests
@@ -11,332 +9,157 @@ from dotenv import load_dotenv
 
 from ingest_utils import (
     canonical_game_id,
-    implied_prob_from_price,
+    implied_prob,
+    init_db,
     load_config,
     normalize_team,
-    init_db,
     upsert_rows,
     utc_now_iso,
     within_bettable_window,
 )
 
-# ------------------
-# Constants
-# ------------------
-API_URL_BASE = "https://api.the-odds-api.com/v4/sports"
-API_KEY_ENV = "ODDS_API_KEY"
+API_BASE = "https://api.the-odds-api.com/v4/sports"
 CONFIG_PATH = "config.yaml"
 SCHEMA_PATH = "schema.sql"
 
 
-def fetch_odds(
-    session: requests.Session,
-    api_key: str,
-    config: dict,
-    sport: str,
-    market_key: str,
-):
-    """Fetch odds for a single sport/market; returns [] if unsupported."""
-    url = f"{API_URL_BASE}/{sport}/odds"
+def fetch_odds(session: requests.Session, api_key: str, config: dict, sport: str, market: str):
+    """Fetch odds for a sport/market from The Odds API."""
+    url = f"{API_BASE}/{sport}/odds"
     params = {
         "apiKey": api_key,
         "regions": ",".join(config["regions"]),
-        "markets": market_key,
+        "markets": market,
         "oddsFormat": "decimal",
         "dateFormat": "iso",
     }
-    for attempt in range(2):
+    resp = session.get(url, params=params, timeout=20)
+    if resp.status_code == 200:
+        return resp.json()
+    if resp.status_code in {404, 422}:
+        return []
+    if resp.status_code == 429:
+        wait = int(resp.headers.get("Retry-After", 30))
+        time.sleep(wait)
         resp = session.get(url, params=params, timeout=20)
         if resp.status_code == 200:
             return resp.json()
-        if resp.status_code in {404, 422}:
-            return []
-        if resp.status_code == 429 and attempt == 0:
-            retry_after = resp.headers.get("Retry-After")
-            wait_seconds = int(retry_after) if retry_after and retry_after.isdigit() else 30
-            time.sleep(wait_seconds)
-            continue
-
-        body = resp.text.strip()
-        raise SystemExit(
-            f"Odds API error {resp.status_code} for {sport}/{market_key}: {body}"
-        )
-
-    raise SystemExit("Odds API rate-limited; try again later.")
+    raise SystemExit(f"Odds API error {resp.status_code}: {resp.text.strip()}")
 
 
-def match_side(outcome_name: str, home_team: str, away_team: str) -> str | None:
-    """Map outcome names to home/away/draw sides."""
-    outcome_norm = normalize_team(outcome_name)
-    home_norm = normalize_team(home_team)
-    away_norm = normalize_team(away_team)
-    if outcome_norm == home_norm or home_norm in outcome_norm:
+def match_side(outcome_name: str, home: str, away: str) -> str | None:
+    """Map outcome name to home/away/draw."""
+    outcome = normalize_team(outcome_name)
+    home_n, away_n = normalize_team(home), normalize_team(away)
+    if outcome == home_n or home_n in outcome:
         return "home"
-    if outcome_norm == away_norm or away_norm in outcome_norm:
+    if outcome == away_n or away_n in outcome:
         return "away"
-    if outcome_norm in {"draw", "tie", "x"}:
+    if outcome in {"draw", "tie", "x"}:
         return "draw"
     return None
 
 
-def line_value(market_key: str, point: float | None) -> float | None:
-    """Normalize line values so the primary key is never NULL."""
-    if market_key == "h2h":
-        return 0.0
-    if point is None:
-        return None
-    try:
-        return float(point)
-    except (TypeError, ValueError):
-        return None
-
-
 def ingest() -> None:
-    """Fetch odds and upsert the latest rows into SQLite."""
+    """Fetch odds and upsert into SQLite."""
     load_dotenv()
-    api_key = os.getenv(API_KEY_ENV)
+    api_key = os.getenv("ODDS_API_KEY")
     if not api_key:
-        raise SystemExit(f"Missing env var: {API_KEY_ENV}")
+        raise SystemExit("Missing ODDS_API_KEY in .env")
 
     config = load_config(CONFIG_PATH)
     db_path = config["storage"]["database"]
-    polling_cfg = config.get("polling", {})
+    window_days = config.get("bettable_window_days", 30)
+    delay = config.get("polling", {}).get("request_delay_seconds", 0)
+    allowed_books = set(config["books"])
     now = utc_now_iso()
-    window_days = int(config.get("bettable_window_days", 5))
 
-    if polling_cfg.get("ignore_sigint"):
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-    # ------------------
-    # Ingest
-    # ------------------
     conn = init_db(db_path, SCHEMA_PATH)
+    games_rows, odds_rows = {}, []
+
     try:
-        allowed_books = set(config["books"])
-        allowed_markets = set(config["markets"])
-
-        games_rows: dict[str, dict] = {}
-        odds_rows: list[dict] = []
-        total_games = 0
-        total_requests = len(config["sports"]) * len(config["markets"])
-        request_count = 0
-        seen_books: set[str] = set()
-        matched_books: set[str] = set()
-        price_row_count = 0
-        skipped_outside_window = 0
-
         with requests.Session() as session:
-            delay_seconds = polling_cfg.get("request_delay_seconds", 0)
-
             for sport in config["sports"]:
-                for requested_market in config["markets"]:
-                    request_count += 1
-                    if polling_cfg.get("show_progress", True):
-                        print(
-                            f"Request {request_count}/{total_requests}: "
-                            f"sport={sport} market={requested_market}"
-                        )
-                    games = fetch_odds(session, api_key, config, sport, requested_market)
-                    if polling_cfg.get("show_progress", True):
-                        print(f"  -> games returned: {len(games)}")
-                    total_games += len(games)
-                    if delay_seconds:
-                        time.sleep(delay_seconds)
+                for market_key in config["markets"]:
+                    print(f"Fetching {sport}/{market_key}...")
+                    games = fetch_odds(session, api_key, config, sport, market_key)
+                    print(f"  {len(games)} games")
+                    if delay:
+                        time.sleep(delay)
 
                     for game in games:
-                        home_team = game.get("home_team")
-                        away_team = game.get("away_team")
-                        commence_time = game.get("commence_time")
-                        event_id = game.get("id")
-                        league = game.get("sport_key")
-
-                        if not home_team or not away_team or not commence_time or not league:
+                        home, away = game.get("home_team"), game.get("away_team")
+                        commence = game.get("commence_time")
+                        if not all([home, away, commence]):
+                            continue
+                        if not within_bettable_window(commence, window_days):
                             continue
 
-                        if not within_bettable_window(commence_time, window_days):
-                            skipped_outside_window += 1
-                            continue
-
-                        date_str = commence_time[:10]
-                        game_id = canonical_game_id(league, home_team, away_team, date_str)
-
+                        game_id = canonical_game_id(game["sport_key"], home, away, commence[:10])
                         games_rows[game_id] = {
                             "game_id": game_id,
-                            "league": league,
-                            "commence_time": commence_time,
-                            "home_team": home_team,
-                            "away_team": away_team,
+                            "league": game["sport_key"],
+                            "commence_time": commence,
+                            "home_team": home,
+                            "away_team": away,
                             "last_refreshed": now,
                         }
 
                         for book in game.get("bookmakers", []):
-                            sportsbook = book.get("key")
-                            if sportsbook:
-                                seen_books.add(sportsbook)
-                            if sportsbook not in allowed_books:
+                            if book["key"] not in allowed_books:
                                 continue
-                            matched_books.add(sportsbook)
-                            provider_updated_at = book.get("last_update") or now
-
-                            for market in book.get("markets", []):
-                                market_key = market.get("key")
-                                if market_key not in allowed_markets:
+                            for mkt in book.get("markets", []):
+                                if mkt["key"] not in config["markets"]:
                                     continue
-
-                                for outcome in market.get("outcomes", []):
-                                    outcome_name = outcome.get("name")
-                                    odds = outcome.get("price")
-                                    point = outcome.get("point")
-
-                                    if outcome_name is None or odds is None:
+                                for outcome in mkt.get("outcomes", []):
+                                    name, price = outcome.get("name"), outcome.get("price")
+                                    if name is None or price is None:
                                         continue
-                                    implied_prob = implied_prob_from_price(odds)
 
-                                    line = line_value(market_key, point)
+                                    # Determine side and line
+                                    if mkt["key"] == "totals":
+                                        side = name.strip().lower()
+                                        if side not in {"over", "under"}:
+                                            continue
+                                        line = outcome.get("point")
+                                    else:
+                                        side = match_side(name, home, away)
+                                        if not side:
+                                            continue
+                                        line = outcome.get("point", 0.0) if mkt["key"] == "spreads" else 0.0
+
                                     if line is None:
                                         continue
 
-                                    if market_key in {"h2h", "spreads"}:
-                                        side = match_side(outcome_name, home_team, away_team)
-                                        if side == "home":
-                                            odds_rows.append(
-                                                {
-                                                    "game_id": game_id,
-                                                    "market": market_key,
-                                                    "side": "home",
-                                                    "line": line,
-                                                    "source": "odds",
-                                                    "provider": sportsbook,
-                                                    "price": odds,
-                                                    "implied_prob": implied_prob,
-                                                    "provider_updated_at": provider_updated_at,
-                                                    "last_refreshed": now,
-                                                    "source_event_id": event_id,
-                                                    "source_market_id": None,
-                                                    "outcome": outcome_name,
-                                                }
-                                            )
-                                            price_row_count += 1
-                                        elif side == "away":
-                                            odds_rows.append(
-                                                {
-                                                    "game_id": game_id,
-                                                    "market": market_key,
-                                                    "side": "away",
-                                                    "line": line,
-                                                    "source": "odds",
-                                                    "provider": sportsbook,
-                                                    "price": odds,
-                                                    "implied_prob": implied_prob,
-                                                    "provider_updated_at": provider_updated_at,
-                                                    "last_refreshed": now,
-                                                    "source_event_id": event_id,
-                                                    "source_market_id": None,
-                                                    "outcome": outcome_name,
-                                                }
-                                            )
-                                            price_row_count += 1
-                                        elif side == "draw":
-                                            odds_rows.append(
-                                                {
-                                                    "game_id": game_id,
-                                                    "market": market_key,
-                                                    "side": "draw",
-                                                    "line": line,
-                                                    "source": "odds",
-                                                    "provider": sportsbook,
-                                                    "price": odds,
-                                                    "implied_prob": implied_prob,
-                                                    "provider_updated_at": provider_updated_at,
-                                                    "last_refreshed": now,
-                                                    "source_event_id": event_id,
-                                                    "source_market_id": None,
-                                                    "outcome": outcome_name,
-                                                }
-                                            )
-                                            price_row_count += 1
-                                    elif market_key == "totals":
-                                        outcome_lower = str(outcome_name).strip().lower()
-                                        if outcome_lower == "over":
-                                            odds_rows.append(
-                                                {
-                                                    "game_id": game_id,
-                                                    "market": market_key,
-                                                    "side": "over",
-                                                    "line": line,
-                                                    "source": "odds",
-                                                    "provider": sportsbook,
-                                                    "price": odds,
-                                                    "implied_prob": implied_prob,
-                                                    "provider_updated_at": provider_updated_at,
-                                                    "last_refreshed": now,
-                                                    "source_event_id": event_id,
-                                                    "source_market_id": None,
-                                                    "outcome": outcome_name,
-                                                }
-                                            )
-                                            price_row_count += 1
-                                        elif outcome_lower == "under":
-                                            odds_rows.append(
-                                                {
-                                                    "game_id": game_id,
-                                                    "market": market_key,
-                                                    "side": "under",
-                                                    "line": line,
-                                                    "source": "odds",
-                                                    "provider": sportsbook,
-                                                    "price": odds,
-                                                    "implied_prob": implied_prob,
-                                                    "provider_updated_at": provider_updated_at,
-                                                    "last_refreshed": now,
-                                                    "source_event_id": event_id,
-                                                    "source_market_id": None,
-                                                    "outcome": outcome_name,
-                                                }
-                                            )
-                                            price_row_count += 1
+                                    odds_rows.append({
+                                        "game_id": game_id,
+                                        "market": mkt["key"],
+                                        "side": side,
+                                        "line": float(line),
+                                        "source": "odds",
+                                        "provider": book["key"],
+                                        "price": price,
+                                        "implied_prob": implied_prob(price),
+                                        "provider_updated_at": book.get("last_update", now),
+                                        "last_refreshed": now,
+                                        "source_event_id": game.get("id"),
+                                        "source_market_id": None,
+                                        "outcome": name,
+                                    })
 
-        upsert_rows(
-            conn,
-            table="games",
-            key_cols=["game_id"],
-            update_cols=[
-                "league",
-                "commence_time",
-                "home_team",
-                "away_team",
-                "last_refreshed",
-            ],
-            rows=games_rows.values(),
-        )
-
-        upsert_rows(
-            conn,
-            table="market_latest",
-            key_cols=["game_id", "market", "side", "line", "source", "provider"],
-            update_cols=[
-                "price",
-                "implied_prob",
-                "provider_updated_at",
-                "last_refreshed",
-                "source_event_id",
-                "source_market_id",
-                "outcome",
-            ],
-            rows=odds_rows,
-        )
-
+        upsert_rows(conn, "games", ["game_id"],
+                    ["league", "commence_time", "home_team", "away_team", "last_refreshed"],
+                    games_rows.values())
+        upsert_rows(conn, "market_latest",
+                    ["game_id", "market", "side", "line", "source", "provider"],
+                    ["price", "implied_prob", "provider_updated_at", "last_refreshed",
+                     "source_event_id", "source_market_id", "outcome"],
+                    odds_rows)
         conn.commit()
     finally:
         conn.close()
 
-    print("Odds API summary:")
-    print(f"  total games: {total_games}")
-    print(f"  price rows written: {price_row_count}")
-    print(f"  skipped outside window: {skipped_outside_window}")
-    print(f"  books seen: {sorted(seen_books)}")
-    print(f"  books matched config: {sorted(matched_books)}")
-    print("Odds API ingestion complete.")
+    print(f"Odds API: {len(games_rows)} games, {len(odds_rows)} price rows")
 
 
 if __name__ == "__main__":
