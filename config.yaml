@@ -1,86 +1,34 @@
 # Sports to ingest (Odds API sport keys)
 sports:
   - basketball_nba
-  # - basketball_ncaab
   - americanfootball_nfl
-  # - americanfootball_ncaaf
   # - icehockey_nhl
   # - baseball_mlb
-  # - soccer_epl
-  # - soccer_uefa_champs_league
-  # - soccer_usa_mls
-  # - tennis_atp
-  # - tennis_wta
-  # - golf_pga
-  # - mma_mixed_martial_arts
 
-# Markets you can realistically bet on in Ontario
+# Market types
 markets:
   - h2h
   - spreads
   - totals
-  # - alternate_spreads
-  # - alternate_totals
-  # - outrights
 
-# Regions to request (filter books explicitly)
+# Regions for Odds API
 regions:
   - us
-  - ca
 
-# Ontario-licensed sportsbooks ONLY
+# Bookmakers to store (all available will be fetched)
 books:
   - draftkings
   - fanduel
-  # - betmgm
-  # - pointsbet
-  # - betrivers
-  # - caesars
-  # - sportsinteraction
-  # Optional / conditional
-  # - betway
-  # - coolbet
+  - betmgm
+  - betrivers
+  - betonlineag
 
-# Polling settings
-polling:
-  interval_seconds: 60
-  request_delay_seconds: 1
-  show_progress: true
-  ignore_sigint: true
+# Request delay between API calls (seconds)
+request_delay_seconds: 1
 
-# Storage settings
+# Storage
 storage:
   database: odds.db
-  # reset_snapshot is deprecated (latest-only upserts do not delete rows).
-  reset_snapshot: true
 
-# Bettable window (days ahead from now)
+# How far ahead to look for games (days)
 bettable_window_days: 30
-
-# Polymarket settings
-polymarket:
-  # Polymarket sport codes to ingest
-  sports:
-    - nba
-    - nhl
-  # Market types to store (fallbacks to top-level markets if omitted)
-  markets:
-    - h2h
-    - spreads
-    - totals
-  # Enable extra debug output
-  debug: true
-  # Use date-only filtering for bettable window
-  use_date_only: true
-
-  # Tag ID for game markets (per Polymarket docs)
-  tag_id: 100639
-
-  # Map Polymarket sport codes to Odds API league keys for canonical IDs
-  league_aliases:
-    nba: basketball_nba
-    nhl: icehockey_nhl
-
-  # Request tuning
-  limit: 200
-  request_delay_seconds: 0.1
