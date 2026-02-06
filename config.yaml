@@ -2,29 +2,47 @@
 sports:
   - basketball_nba
   - americanfootball_nfl
+  # - basketball_ncaab
+  # - americanfootball_ncaaf
   # - icehockey_nhl
   # - baseball_mlb
+  # - soccer_epl
+  # - soccer_uefa_champs_league
+  # - soccer_usa_mls
+  # - tennis_atp
+  # - tennis_wta
+  # - golf_pga
+  # - mma_mixed_martial_arts
 
 # Market types
 markets:
   - h2h
   - spreads
   - totals
+  # - alternate_spreads
+  # - alternate_totals
+  # - outrights
 
 # Regions for Odds API
 regions:
   - us
+  - ca
 
-# Bookmakers to store (all available will be fetched)
+# Bookmakers to store
 books:
   - draftkings
   - fanduel
   - betmgm
   - betrivers
   - betonlineag
+  # - pointsbet
+  # - caesars
+  # - sportsinteraction
+  # - betway
+  # - coolbet
 
 # Request delay between API calls (seconds)
-request_delay_seconds: 1
+request_delay_seconds: 0.1
 
 # Storage
 storage:
