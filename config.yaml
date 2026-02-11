@@ -21,8 +21,8 @@
 
 sources:
   # Odds API: Aggregates odds from regulated US sportsbooks
-  odds_api:
-    enabled: true
+  odds_api:  # DISABLED - Quota exhausted
+    enabled: false
     category: sportsbook               # For arbitrage categorization
     poll_interval_seconds: 300         # Poll every 5 minutes
     request_delay_seconds: 0.5         # Delay between individual API calls
@@ -197,7 +197,7 @@ middles:
   
   # Player props middle detection
   player_props:
-    enabled: true
+    enabled: false
     markets:
       - player_points
       - player_rebounds

@@ -129,66 +129,113 @@ def detect_sportsbook_middles(
     for (game_id, market), data_list in games.items():
         min_gap = min_gap_spread if market == "spreads" else min_gap_total
 
-        # Compare all pairs
-        for i, data_a in enumerate(data_list):
-            for data_b in data_list[i + 1:]:
-                # Skip same provider
-                if data_a["provider"] == data_b["provider"]:
-                    continue
+        if market == "spreads":
+            # For spreads: find best away line vs best home line from DIFFERENT providers
+            # Middle exists when: away_line + home_line > 0
+            # E.g., away +10.5 and home -9.5 => gap = 10.5 - 9.5 = 1.0
+            away_bets = [d for d in data_list if d["side"] == "away"]
+            home_bets = [d for d in data_list if d["side"] == "home"]
 
-                # Skip stale data
-                if (seconds_since(data_a["refreshed"]) > max_age or
-                    seconds_since(data_b["refreshed"]) > max_age):
-                    continue
-
-                # Check for middle
-                gap = calculate_middle_gap(data_a["line"], data_b["line"])
-                if gap < min_gap:
-                    continue
-
-                # For spreads, check if lines create a middle
-                # e.g., Team A -3.5 vs Team B +5.5 = 2pt gap
-                if market == "spreads":
-                    # Need opposite sides with favorable gap
-                    if data_a["side"] == data_b["side"]:
-                        continue
-                    # Verify middle exists
-                    if data_a["line"] > data_b["line"]:
+            for away in away_bets:
+                for home in home_bets:
+                    # Must be different providers
+                    if away["provider"] == home["provider"]:
                         continue
 
-                # Estimate middle probability
-                mid_prob = estimate_middle_probability(gap, market)
+                    # Skip stale data
+                    if (seconds_since(away["refreshed"]) > max_age or
+                        seconds_since(home["refreshed"]) > max_age):
+                        continue
 
-                # Calculate EV
-                stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
-                ev_result = calculate_middle_ev(
-                    stake_total,
-                    data_a["prob"],
-                    data_b["prob"],
-                    mid_prob,
-                )
+                    # Calculate gap: away line should be positive, home negative
+                    # Gap = away_line - abs(home_line) = away_line + home_line
+                    gap = away["line"] + home["line"]  # e.g., +10.5 + (-9.5) = 1.0
+                    if gap < min_gap:
+                        continue
 
-                opportunities.append({
-                    "type": "sportsbook",
-                    "game_id": game_id,
-                    "market": market,
-                    "side_a": data_a["side"],
-                    "line_a": data_a["line"],
-                    "provider_a": data_a["provider"],
-                    "prob_a": data_a["prob"],
-                    "side_b": data_b["side"],
-                    "line_b": data_b["line"],
-                    "provider_b": data_b["provider"],
-                    "prob_b": data_b["prob"],
-                    "gap": gap,
-                    "middle_prob": mid_prob,
-                    "ev": ev_result["ev"],
-                    "ev_percent": ev_result["ev_percent"],
-                    "description": (
-                        f"{market.upper()}: {data_a['side']} {data_a['line']:+.1f} ({data_a['provider']}) "
-                        f"vs {data_b['side']} {data_b['line']:+.1f} ({data_b['provider']})"
-                    ),
-                })
+                    mid_prob = estimate_middle_probability(gap, market)
+                    stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
+                    ev_result = calculate_middle_ev(
+                        stake_total,
+                        away["prob"],
+                        home["prob"],
+                        mid_prob,
+                    )
+
+                    opportunities.append({
+                        "type": "sportsbook",
+                        "game_id": game_id,
+                        "market": market,
+                        "side_a": "away",
+                        "line_a": away["line"],
+                        "provider_a": away["provider"],
+                        "prob_a": away["prob"],
+                        "side_b": "home",
+                        "line_b": home["line"],
+                        "provider_b": home["provider"],
+                        "prob_b": home["prob"],
+                        "gap": gap,
+                        "middle_prob": mid_prob,
+                        "ev": ev_result["ev"],
+                        "ev_percent": ev_result["ev_percent"],
+                        "description": (
+                            f"SPREAD MIDDLE: away {away['line']:+.1f} ({away['provider']}) "
+                            f"vs home {home['line']:+.1f} ({home['provider']}) = {gap:.1f}pt window"
+                        ),
+                    })
+
+        elif market == "totals":
+            # For totals: find over at low line vs under at high line
+            # Middle exists when: under_line > over_line
+            over_bets = [d for d in data_list if d["side"] == "over"]
+            under_bets = [d for d in data_list if d["side"] == "under"]
+
+            for over in over_bets:
+                for under in under_bets:
+                    # Must be different providers
+                    if over["provider"] == under["provider"]:
+                        continue
+
+                    # Skip stale data
+                    if (seconds_since(over["refreshed"]) > max_age or
+                        seconds_since(under["refreshed"]) > max_age):
+                        continue
+
+                    # Gap = under_line - over_line
+                    gap = under["line"] - over["line"]
+                    if gap < min_gap:
+                        continue
+
+                    mid_prob = estimate_middle_probability(gap, market)
+                    stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
+                    ev_result = calculate_middle_ev(
+                        stake_total,
+                        over["prob"],
+                        under["prob"],
+                        mid_prob,
+                    )
+
+                    opportunities.append({
+                        "type": "sportsbook",
+                        "game_id": game_id,
+                        "market": market,
+                        "side_a": "over",
+                        "line_a": over["line"],
+                        "provider_a": over["provider"],
+                        "prob_a": over["prob"],
+                        "side_b": "under",
+                        "line_b": under["line"],
+                        "provider_b": under["provider"],
+                        "prob_b": under["prob"],
+                        "gap": gap,
+                        "middle_prob": mid_prob,
+                        "ev": ev_result["ev"],
+                        "ev_percent": ev_result["ev_percent"],
+                        "description": (
+                            f"TOTAL MIDDLE: O{over['line']:.1f} ({over['provider']}) "
+                            f"vs U{under['line']:.1f} ({under['provider']}) = {gap:.1f}pt window"
+                        ),
+                    })
 
     return sorted(opportunities, key=lambda x: -x["ev"])
 
@@ -255,57 +302,97 @@ def detect_open_market_middles(
     for (game_id, market), data_list in games.items():
         min_gap = min_gap_spread if market == "spreads" else min_gap_total
 
-        for i, data_a in enumerate(data_list):
-            for data_b in data_list[i + 1:]:
-                # Must be different sources
-                if data_a["source"] == data_b["source"]:
-                    continue
+        if market == "spreads":
+            away_bets = [d for d in data_list if d["side"] == "away"]
+            home_bets = [d for d in data_list if d["side"] == "home"]
 
-                # Skip stale
-                if (seconds_since(data_a["refreshed"]) > max_age or
-                    seconds_since(data_b["refreshed"]) > max_age):
-                    continue
+            for away in away_bets:
+                for home in home_bets:
+                    if away["source"] == home["source"]:
+                        continue
+                    if (seconds_since(away["refreshed"]) > max_age or
+                        seconds_since(home["refreshed"]) > max_age):
+                        continue
 
-                gap = calculate_middle_gap(data_a["line"], data_b["line"])
-                if gap < min_gap:
-                    continue
+                    gap = away["line"] + home["line"]
+                    if gap < min_gap:
+                        continue
 
-                # Spreads need opposite sides
-                if market == "spreads" and data_a["side"] == data_b["side"]:
-                    continue
+                    mid_prob = estimate_middle_probability(gap, market)
+                    stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
+                    ev_result = calculate_middle_ev(
+                        stake_total, away["prob"], home["prob"], mid_prob,
+                    )
 
-                mid_prob = estimate_middle_probability(gap, market)
-                stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
-                ev_result = calculate_middle_ev(
-                    stake_total,
-                    data_a["prob"],
-                    data_b["prob"],
-                    mid_prob,
-                )
+                    opportunities.append({
+                        "type": "open_market",
+                        "game_id": game_id,
+                        "market": market,
+                        "side_a": "away",
+                        "line_a": away["line"],
+                        "source_a": away["source"],
+                        "provider_a": away["provider"],
+                        "prob_a": away["prob"],
+                        "side_b": "home",
+                        "line_b": home["line"],
+                        "source_b": home["source"],
+                        "provider_b": home["provider"],
+                        "prob_b": home["prob"],
+                        "gap": gap,
+                        "middle_prob": mid_prob,
+                        "ev": ev_result["ev"],
+                        "ev_percent": ev_result["ev_percent"],
+                        "description": (
+                            f"SPREAD: away {away['line']:+.1f} ({away['source']}) "
+                            f"vs home {home['line']:+.1f} ({home['source']}) = {gap:.1f}pt"
+                        ),
+                    })
 
-                opportunities.append({
-                    "type": "open_market",
-                    "game_id": game_id,
-                    "market": market,
-                    "side_a": data_a["side"],
-                    "line_a": data_a["line"],
-                    "source_a": data_a["source"],
-                    "provider_a": data_a["provider"],
-                    "prob_a": data_a["prob"],
-                    "side_b": data_b["side"],
-                    "line_b": data_b["line"],
-                    "source_b": data_b["source"],
-                    "provider_b": data_b["provider"],
-                    "prob_b": data_b["prob"],
-                    "gap": gap,
-                    "middle_prob": mid_prob,
-                    "ev": ev_result["ev"],
-                    "ev_percent": ev_result["ev_percent"],
-                    "description": (
-                        f"{market.upper()}: {data_a['line']:+.1f} ({data_a['source']}) "
-                        f"vs {data_b['line']:+.1f} ({data_b['source']})"
-                    ),
-                })
+        elif market == "totals":
+            over_bets = [d for d in data_list if d["side"] == "over"]
+            under_bets = [d for d in data_list if d["side"] == "under"]
+
+            for over in over_bets:
+                for under in under_bets:
+                    if over["source"] == under["source"]:
+                        continue
+                    if (seconds_since(over["refreshed"]) > max_age or
+                        seconds_since(under["refreshed"]) > max_age):
+                        continue
+
+                    gap = under["line"] - over["line"]
+                    if gap < min_gap:
+                        continue
+
+                    mid_prob = estimate_middle_probability(gap, market)
+                    stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
+                    ev_result = calculate_middle_ev(
+                        stake_total, over["prob"], under["prob"], mid_prob,
+                    )
+
+                    opportunities.append({
+                        "type": "open_market",
+                        "game_id": game_id,
+                        "market": market,
+                        "side_a": "over",
+                        "line_a": over["line"],
+                        "source_a": over["source"],
+                        "provider_a": over["provider"],
+                        "prob_a": over["prob"],
+                        "side_b": "under",
+                        "line_b": under["line"],
+                        "source_b": under["source"],
+                        "provider_b": under["provider"],
+                        "prob_b": under["prob"],
+                        "gap": gap,
+                        "middle_prob": mid_prob,
+                        "ev": ev_result["ev"],
+                        "ev_percent": ev_result["ev_percent"],
+                        "description": (
+                            f"TOTAL: O{over['line']:.1f} ({over['source']}) "
+                            f"vs U{under['line']:.1f} ({under['source']}) = {gap:.1f}pt"
+                        ),
+                    })
 
     return sorted(opportunities, key=lambda x: -x["ev"])
 
@@ -384,55 +471,117 @@ def detect_cross_market_middles(
         game_id, market = key
         min_gap = min_gap_spread if market == "spreads" else min_gap_total
 
-        for data_sb in sportsbook_data[key]:
-            for data_om in open_market_data[key]:
-                # Skip stale
-                if (seconds_since(data_sb["refreshed"]) > max_age or
-                    seconds_since(data_om["refreshed"]) > max_age):
+        sb_list = sportsbook_data[key]
+        om_list = open_market_data[key]
+
+        if market == "spreads":
+            # Find away/home bets from each source
+            sb_away = [d for d in sb_list if d["side"] == "away"]
+            sb_home = [d for d in sb_list if d["side"] == "home"]
+            om_away = [d for d in om_list if d["side"] == "away"]
+            om_home = [d for d in om_list if d["side"] == "home"]
+
+            # Cross combinations: SB away vs OM home, SB home vs OM away
+            for away, home in [(a, h) for a in sb_away for h in om_home] + \
+                              [(a, h) for a in om_away for h in sb_home]:
+                if (seconds_since(away["refreshed"]) > max_age or
+                    seconds_since(home["refreshed"]) > max_age):
                     continue
 
-                gap = calculate_middle_gap(data_sb["line"], data_om["line"])
+                gap = away["line"] + home["line"]
                 if gap < min_gap:
-                    continue
-
-                # Spreads need opposite sides
-                if market == "spreads" and data_sb["side"] == data_om["side"]:
                     continue
 
                 mid_prob = estimate_middle_probability(gap, market)
                 stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
                 ev_result = calculate_middle_ev(
-                    stake_total,
-                    data_sb["prob"],
-                    data_om["prob"],
-                    mid_prob,
+                    stake_total, away["prob"], home["prob"], mid_prob,
                 )
 
-                # Apply fee adjustment for open market
-                fee = arb_fees.get(data_om["provider"], arb_fees.get("default", 0))
+                # Apply fee if open market side
+                fee = 0
+                if away["source"] in OPEN_MARKET_SOURCES:
+                    fee = arb_fees.get(away["source"], arb_fees.get("default", 0))
+                elif home["source"] in OPEN_MARKET_SOURCES:
+                    fee = arb_fees.get(home["source"], arb_fees.get("default", 0))
                 adjusted_ev = ev_result["ev"] - (stake_total * fee * mid_prob)
 
                 opportunities.append({
                     "type": "cross_market",
                     "game_id": game_id,
                     "market": market,
-                    "side_sb": data_sb["side"],
-                    "line_sb": data_sb["line"],
-                    "provider_sb": data_sb["provider"],
-                    "prob_sb": data_sb["prob"],
-                    "side_om": data_om["side"],
-                    "line_om": data_om["line"],
-                    "source_om": data_om["source"],
-                    "provider_om": data_om["provider"],
-                    "prob_om": data_om["prob"],
+                    "side_a": "away",
+                    "line_a": away["line"],
+                    "source_a": away["source"],
+                    "provider_a": away["provider"],
+                    "prob_a": away["prob"],
+                    "side_b": "home",
+                    "line_b": home["line"],
+                    "source_b": home["source"],
+                    "provider_b": home["provider"],
+                    "prob_b": home["prob"],
                     "gap": gap,
                     "middle_prob": mid_prob,
                     "ev": adjusted_ev,
                     "ev_percent": adjusted_ev / stake_total if stake_total > 0 else 0,
                     "fee_applied": fee,
                     "description": (
-                        f"{market.upper()}: {data_sb['line']:+.1f} ({data_sb['provider']}) "
-                        f"vs {data_om['line']:+.1f} ({data_om['source']})"
+                        f"SPREAD: away {away['line']:+.1f} ({away['source']}) "
+                        f"vs home {home['line']:+.1f} ({home['source']}) = {gap:.1f}pt"
+                    ),
+                })
+
+        elif market == "totals":
+            sb_over = [d for d in sb_list if d["side"] == "over"]
+            sb_under = [d for d in sb_list if d["side"] == "under"]
+            om_over = [d for d in om_list if d["side"] == "over"]
+            om_under = [d for d in om_list if d["side"] == "under"]
+
+            for over, under in [(o, u) for o in sb_over for u in om_under] + \
+                               [(o, u) for o in om_over for u in sb_under]:
+                if (seconds_since(over["refreshed"]) > max_age or
+                    seconds_since(under["refreshed"]) > max_age):
+                    continue
+
+                gap = under["line"] - over["line"]
+                if gap < min_gap:
+                    continue
+
+                mid_prob = estimate_middle_probability(gap, market)
+                stake_total = config.get("arbitrage", {}).get("reference_bankroll", 100)
+                ev_result = calculate_middle_ev(
+                    stake_total, over["prob"], under["prob"], mid_prob,
+                )
+
+                fee = 0
+                if over["source"] in OPEN_MARKET_SOURCES:
+                    fee = arb_fees.get(over["source"], arb_fees.get("default", 0))
+                elif under["source"] in OPEN_MARKET_SOURCES:
+                    fee = arb_fees.get(under["source"], arb_fees.get("default", 0))
+                adjusted_ev = ev_result["ev"] - (stake_total * fee * mid_prob)
+
+                opportunities.append({
+                    "type": "cross_market",
+                    "game_id": game_id,
+                    "market": market,
+                    "side_a": "over",
+                    "line_a": over["line"],
+                    "source_a": over["source"],
+                    "provider_a": over["provider"],
+                    "prob_a": over["prob"],
+                    "side_b": "under",
+                    "line_b": under["line"],
+                    "source_b": under["source"],
+                    "provider_b": under["provider"],
+                    "prob_b": under["prob"],
+                    "gap": gap,
+                    "middle_prob": mid_prob,
+                    "ev": adjusted_ev,
+                    "ev_percent": adjusted_ev / stake_total if stake_total > 0 else 0,
+                    "fee_applied": fee,
+                    "description": (
+                        f"TOTAL: O{over['line']:.1f} ({over['source']}) "
+                        f"vs U{under['line']:.1f} ({under['source']}) = {gap:.1f}pt"
                     ),
                 })
 

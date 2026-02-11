@@ -661,6 +661,138 @@ def detect_cross_market_arbitrage(
 
 
 # =============================================================================
+# PLAYER PROP ARBITRAGE
+# =============================================================================
+
+def detect_player_prop_arbitrage(
+    conn: sqlite3.Connection,
+    min_edge: float = DEFAULT_MIN_EDGE,
+    max_age_seconds: int = DEFAULT_MAX_AGE,
+    bankroll: float = DEFAULT_BANKROLL,
+) -> list[ArbitrageOpportunity]:
+    """
+    Detect arbitrage opportunities on player props across different sources.
+
+    Player props (points, rebounds, assists, threes) are compared across
+    sportsbooks and prediction markets for over/under mismatches.
+
+    Args:
+        conn: Active SQLite database connection.
+        min_edge: Minimum margin to report as profitable.
+        max_age_seconds: Maximum age of data to consider fresh.
+        bankroll: Reference stake amount.
+
+    Returns:
+        List of arbitrage opportunities sorted by margin (best first).
+
+    Example:
+        >>> arbs = detect_player_prop_arbitrage(conn)
+        >>> for arb in arbs[:5]:
+        ...     print(f"{arb['player']}: {arb['margin']:.2%} edge")
+    """
+    now = utc_now_iso()
+    opportunities: list[ArbitrageOpportunity] = []
+
+    # Query player props from all sources
+    query = """
+    SELECT 
+        a.game_id, a.market, a.player, a.side AS side_a, a.line AS line_a,
+        a.source AS source_a, a.provider AS provider_a, 
+        a.implied_prob AS prob_a, a.price AS price_a, a.last_refreshed AS time_a,
+        b.side AS side_b, b.line AS line_b,
+        b.source AS source_b, b.provider AS provider_b,
+        b.implied_prob AS prob_b, b.price AS price_b, b.last_refreshed AS time_b,
+        g.home_team, g.away_team, g.commence_time
+    FROM market_latest a
+    JOIN market_latest b ON 
+        a.game_id = b.game_id 
+        AND a.market = b.market 
+        AND a.player = b.player
+        AND a.line = b.line
+        AND a.side != b.side
+    JOIN games g ON a.game_id = g.game_id
+    WHERE a.market LIKE 'player_%'
+      AND a.player != ''
+      AND a.implied_prob IS NOT NULL
+      AND b.implied_prob IS NOT NULL
+      AND (a.source != b.source OR a.provider != b.provider)
+    """
+
+    cursor = conn.execute(query)
+    rows = cursor.fetchall()
+
+    seen: set = set()
+    for row in rows:
+        data = dict(zip([
+            "game_id", "market", "player", "side_a", "line_a", "source_a", "provider_a",
+            "prob_a", "price_a", "time_a", "side_b", "line_b", "source_b", "provider_b",
+            "prob_b", "price_b", "time_b", "home_team", "away_team", "commence_time"
+        ], row))
+
+        # Must be over vs under
+        if {data["side_a"], data["side_b"]} != {"over", "under"}:
+            continue
+
+        # Deduplication key
+        key = tuple(sorted([
+            (data["game_id"], data["player"], data["line_a"], data["provider_a"]),
+            (data["game_id"], data["player"], data["line_b"], data["provider_b"]),
+        ]))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # Check freshness
+        age_a = seconds_since(data["time_a"]) if data["time_a"] else None
+        age_b = seconds_since(data["time_b"]) if data["time_b"] else None
+
+        if age_a and age_a > max_age_seconds:
+            continue
+        if age_b and age_b > max_age_seconds:
+            continue
+
+        prob_a = data["prob_a"]
+        prob_b = data["prob_b"]
+        margin = calculate_arb_margin(prob_a, prob_b)
+
+        if margin >= min_edge:
+            stake_a, stake_b = optimal_stakes(prob_a, prob_b, bankroll)
+            prop_type = data["market"].replace("player_", "").upper()
+
+            opportunities.append({
+                "game_id": data["game_id"],
+                "market": data["market"],
+                "player": data["player"],
+                "prop_type": prop_type,
+                "home_team": data.get("home_team"),
+                "away_team": data.get("away_team"),
+                "commence_time": data.get("commence_time"),
+                "side_a": data["side_a"],
+                "line_a": data["line_a"],
+                "source_a": data["source_a"],
+                "provider_a": data["provider_a"],
+                "prob_a": prob_a,
+                "odds_a": data["price_a"],
+                "side_b": data["side_b"],
+                "line_b": data["line_b"],
+                "source_b": data["source_b"],
+                "provider_b": data["provider_b"],
+                "prob_b": prob_b,
+                "odds_b": data["price_b"],
+                "margin": margin,
+                "stake_a": stake_a,
+                "stake_b": stake_b,
+                "total_stake": bankroll,
+                "guaranteed_profit": margin * bankroll,
+                "detected_at": now,
+                "category": "player_prop",
+            })
+
+    opportunities.sort(key=lambda x: x["margin"], reverse=True)
+    return opportunities
+
+
+# =============================================================================
 # UNIFIED DETECTION
 # =============================================================================
 
@@ -671,10 +803,10 @@ def detect_all_arbitrage(
     bankroll: float = DEFAULT_BANKROLL,
 ) -> dict[str, list[ArbitrageOpportunity]]:
     """
-    Run all three arbitrage detection algorithms.
+    Run all four arbitrage detection algorithms.
 
     Convenience function to detect arbitrage across all market categories
-    in a single call.
+    in a single call, including player props.
 
     Args:
         conn: Active SQLite database connection.
@@ -683,7 +815,7 @@ def detect_all_arbitrage(
         bankroll: Reference amount for stake calculations.
 
     Returns:
-        Dictionary with keys 'open_market', 'sportsbook', 'cross_market',
+        Dictionary with keys 'open_market', 'sportsbook', 'cross_market', 'player_prop',
         each containing a list of opportunities.
 
     Example:
@@ -691,6 +823,7 @@ def detect_all_arbitrage(
         >>> print(f"Open market: {len(all_arbs['open_market'])} opportunities")
         >>> print(f"Sportsbook: {len(all_arbs['sportsbook'])} opportunities")
         >>> print(f"Cross-market: {len(all_arbs['cross_market'])} opportunities")
+        >>> print(f"Player props: {len(all_arbs['player_prop'])} opportunities")
     """
     return {
         "open_market": detect_open_market_arbitrage(
@@ -702,6 +835,9 @@ def detect_all_arbitrage(
         "cross_market": detect_cross_market_arbitrage(
             conn, min_edge, max_age_seconds, bankroll
         ),
+        "player_prop": detect_player_prop_arbitrage(
+            conn, min_edge, max_age_seconds, bankroll
+        ),
     }
 
 
@@ -709,11 +845,16 @@ def detect_all_arbitrage(
 # CLI OUTPUT FUNCTIONS
 # =============================================================================
 
-def print_opportunity(arb: ArbitrageOpportunity, config: Optional[dict] = None) -> None:
+def print_opportunity(arb: ArbitrageOpportunity, config: Optional[dict] = None, compact: bool = False) -> None:
     """
     Print a single arbitrage opportunity in readable format.
 
     Shows both gross profit (before fees) and net profit (after fees).
+    
+    Args:
+        arb: Arbitrage opportunity dict.
+        config: Optional config for fee calculations.
+        compact: If True, show compact single-line format.
 
     Args:
         arb: Arbitrage opportunity dictionary.

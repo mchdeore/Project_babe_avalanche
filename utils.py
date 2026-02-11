@@ -27,14 +27,41 @@ Author: Arbitrage Detection System
 """
 from __future__ import annotations
 
+import functools
 import json
+import logging
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, TypeVar
 
 import yaml
+
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+def setup_logging(
+    level: int = logging.INFO,
+    format_str: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+) -> None:
+    """
+    Configure logging for the application.
+
+    Args:
+        level: Logging level (default: INFO).
+        format_str: Log message format string.
+
+    Example:
+        >>> setup_logging(logging.DEBUG)
+    """
+    logging.basicConfig(level=level, format=format_str)
 
 
 # =============================================================================
@@ -49,6 +76,134 @@ DEFAULT_SCHEMA_PATH: str = "schema.sql"
 
 # Default database path
 DEFAULT_DB_PATH: str = "odds.db"
+
+# API request defaults
+DEFAULT_TIMEOUT: int = 30  # seconds
+DEFAULT_RETRIES: int = 3
+DEFAULT_RETRY_DELAY: float = 1.0  # seconds
+
+
+# =============================================================================
+# RETRY DECORATOR
+# =============================================================================
+
+T = TypeVar("T")
+
+
+def retry_on_failure(
+    max_retries: int = DEFAULT_RETRIES,
+    delay: float = DEFAULT_RETRY_DELAY,
+    backoff: float = 2.0,
+    exceptions: tuple = (Exception,),
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator that retries a function on failure with exponential backoff.
+
+    Useful for API calls that may fail due to transient network issues.
+
+    Args:
+        max_retries: Maximum number of retry attempts.
+        delay: Initial delay between retries (seconds).
+        backoff: Multiplier for delay after each retry.
+        exceptions: Tuple of exception types to catch and retry.
+
+    Returns:
+        Decorated function that retries on failure.
+
+    Example:
+        >>> @retry_on_failure(max_retries=3, delay=1.0)
+        ... def fetch_data():
+        ...     return requests.get(url)
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_exception = None
+            current_delay = delay
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"{func.__name__} failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                            f"Retrying in {current_delay:.1f}s..."
+                        )
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        logger.error(
+                            f"{func.__name__} failed after {max_retries + 1} attempts: {e}"
+                        )
+
+            raise last_exception  # type: ignore
+
+        return wrapper
+    return decorator
+
+
+def safe_request(
+    method: str,
+    url: str,
+    session: Any = None,
+    timeout: int = DEFAULT_TIMEOUT,
+    retries: int = DEFAULT_RETRIES,
+    **kwargs: Any,
+) -> Optional[dict]:
+    """
+    Make an HTTP request with automatic retry and error handling.
+
+    Args:
+        method: HTTP method ('get', 'post', etc.).
+        url: Request URL.
+        session: Optional requests.Session for connection pooling.
+        timeout: Request timeout in seconds.
+        retries: Number of retry attempts.
+        **kwargs: Additional arguments passed to requests.
+
+    Returns:
+        JSON response as dict, or None if request failed.
+
+    Example:
+        >>> data = safe_request('get', 'https://api.example.com/data')
+        >>> if data:
+        ...     print(data['results'])
+    """
+    import requests
+
+    requester = session or requests
+    last_error = None
+
+    for attempt in range(retries + 1):
+        try:
+            response = getattr(requester, method.lower())(
+                url, timeout=timeout, **kwargs
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout as e:
+            last_error = e
+            logger.warning(f"Request timeout (attempt {attempt + 1}): {url}")
+        except requests.exceptions.ConnectionError as e:
+            last_error = e
+            logger.warning(f"Connection error (attempt {attempt + 1}): {url}")
+        except requests.exceptions.HTTPError as e:
+            last_error = e
+            logger.warning(f"HTTP error {e.response.status_code} (attempt {attempt + 1}): {url}")
+            if e.response.status_code in (401, 403, 404):
+                # Don't retry auth/not-found errors
+                break
+        except (requests.exceptions.RequestException, ValueError) as e:
+            last_error = e
+            logger.warning(f"Request failed (attempt {attempt + 1}): {e}")
+
+        if attempt < retries:
+            time.sleep(DEFAULT_RETRY_DELAY * (2 ** attempt))
+
+    logger.error(f"Request failed after {retries + 1} attempts: {url} - {last_error}")
+    return None
 
 
 # =============================================================================

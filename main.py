@@ -44,6 +44,7 @@ from arbitrage import (
     detect_all_arbitrage,
     detect_cross_market_arbitrage,
     detect_open_market_arbitrage,
+    detect_player_prop_arbitrage,
     detect_sportsbook_arbitrage,
     print_opportunity,
     print_summary,
@@ -114,23 +115,61 @@ def run_full_pipeline() -> dict[str, Any]:
         # Print summary
         print_summary(arb_results)
 
-        # Show top opportunities
-        all_opps = []
+        # Collect all arbitrage opportunities
+        all_arbs = []
         for category, opps in arb_results.items():
-            all_opps.extend(opps)
+            all_arbs.extend(opps)
 
-        if all_opps:
-            # Sort all by margin and show top 5
-            all_opps.sort(key=lambda x: x["margin"], reverse=True)
+        # =====================================================================
+        # TOP 5 ARBITRAGE OPPORTUNITIES
+        # =====================================================================
+        if all_arbs:
+            all_arbs.sort(key=lambda x: x["margin"], reverse=True)
             print("\n" + "="*70)
-            print("TOP 5 OPPORTUNITIES (ALL CATEGORIES)")
+            print("TOP 5 ARBITRAGE OPPORTUNITIES")
             print("="*70)
-            for arb in all_opps[:5]:
-                print_opportunity(arb, config)
+            for i, arb in enumerate(all_arbs[:5], 1):
+                category = arb.get("category", "unknown").upper()
+                player = arb.get("player", "")
+                if player:
+                    title = f"[{i}] {category} - {player.upper()} ({arb['market'].replace('player_', '')})"
+                else:
+                    title = f"[{i}] {category} - {arb['market'].upper()}"
+                print(f"\n{title}")
+                print(f"    {arb['side_a']} @ {arb['provider_a']} vs {arb['side_b']} @ {arb['provider_b']}")
+                print(f"    💰 Profit: ${arb['guaranteed_profit']:.2f} ({arb['margin']:.2%})")
         else:
-            print("\n⚠️  No arbitrage opportunities found at current threshold")
+            print("\n⚠️  No arbitrage opportunities found")
             print(f"   Minimum edge: {min_edge:.2%}")
-            print(f"   Maximum data age: {max_age}s")
+
+        # =====================================================================
+        # TOP 5 MIDDLE OPPORTUNITIES
+        # =====================================================================
+        print("\n" + "="*70)
+        print("TOP 5 MIDDLE OPPORTUNITIES")
+        print("="*70)
+
+        middles = detect_all_middles(conn, config)
+        if middles:
+            for i, mid in enumerate(middles[:5], 1):
+                mid_type = mid.get("type", "unknown").upper()
+                player = mid.get("player", "")
+                if player:
+                    title = f"[{i}] {mid_type} - {player.upper()} ({mid['market'].replace('player_', '')})"
+                else:
+                    title = f"[{i}] {mid_type} - {mid['market'].upper()}"
+                print(f"\n{title}")
+                print(f"    {mid['description']}")
+                print(f"    📊 Gap: {mid['gap']:.1f}pts | Prob: {mid['middle_prob']:.1%} | EV: ${mid['ev']:.2f}")
+        else:
+            print("\n⚠️  No middle opportunities found")
+
+        # =====================================================================
+        # FINAL SUMMARY
+        # =====================================================================
+        print("\n" + "="*70)
+        print(f"SUMMARY: {len(all_arbs)} arbitrage | {len(middles)} middles")
+        print("="*70)
 
     finally:
         conn.close()
@@ -284,6 +323,7 @@ Arbitrage Detection:
     open        Detect open market arbitrage only
     sportsbook  Detect sportsbook arbitrage only
     cross       Detect cross-market arbitrage only
+    props       Detect player prop arbitrage only
 
 Middle Bet Detection:
     middle          Detect all middle bet opportunities
@@ -394,6 +434,30 @@ def main() -> int:
             for arb in arbs:
                 print_opportunity(arb, config)
             print(f"\n✅ Found {len(arbs)} cross-market opportunities")
+        finally:
+            conn.close()
+
+    elif command == "props":
+        # Player prop arbitrage only
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        arb_config = config.get("arbitrage", {})
+        try:
+            arbs = detect_player_prop_arbitrage(
+                conn,
+                min_edge=arb_config.get("min_edge_percent", 0.5) / 100,
+            )
+            print(f"\n{'='*70}")
+            print("PLAYER PROP ARBITRAGE")
+            print(f"{'='*70}")
+            for arb in arbs:
+                player = arb.get("player", "Unknown")
+                prop_type = arb.get("prop_type", arb.get("market", ""))
+                print(f"\n🏀 {player.upper()} - {prop_type}")
+                print(f"   {arb['side_a']} {arb['line_a']} @ {arb['provider_a']}")
+                print(f"   {arb['side_b']} {arb['line_b']} @ {arb['provider_b']}")
+                print(f"   💰 Profit: ${arb['guaranteed_profit']:.2f} ({arb['margin']:.2%})")
+            print(f"\n✅ Found {len(arbs)} player prop opportunities")
         finally:
             conn.close()
 

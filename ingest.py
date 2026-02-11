@@ -42,10 +42,13 @@ import time
 from collections import defaultdict
 from typing import Any, Optional
 
+import logging
 import requests
 from dotenv import load_dotenv
 
 from utils import (
+    DEFAULT_RETRIES,
+    DEFAULT_TIMEOUT,
     canonical_game_id,
     devig,
     devig_market,
@@ -53,15 +56,20 @@ from utils import (
     init_db,
     insert_history,
     load_config,
+    logger,
     normalize_player,
     normalize_team,
     odds_to_prob,
     safe_json,
+    setup_logging,
     update_source_metadata,
     upsert_rows,
     utc_now_iso,
     within_window,
 )
+
+# Initialize logging for this module
+ingest_logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -76,6 +84,135 @@ MarketRow = dict[str, Any]
 
 # Standard return type for fetch functions
 FetchResult = tuple[dict[str, GameRecord], list[MarketRow]]
+
+
+# =============================================================================
+# API REQUEST HELPER
+# =============================================================================
+
+def api_request(
+    session: requests.Session,
+    url: str,
+    params: Optional[dict] = None,
+    timeout: int = DEFAULT_TIMEOUT,
+    retries: int = DEFAULT_RETRIES,
+    context: str = "",
+) -> tuple[Optional[dict | list], int]:
+    """
+    Make an API request with automatic retry and comprehensive error handling.
+
+    Features:
+        - Automatic retries with exponential backoff for transient failures
+        - Detailed logging for debugging API issues
+        - Consistent error handling across all API calls
+        - Returns both data and status code for caller flexibility
+
+    Args:
+        session: requests.Session for connection pooling.
+        url: The API endpoint URL.
+        params: Optional query parameters.
+        timeout: Request timeout in seconds.
+        retries: Maximum number of retry attempts.
+        context: Description of request for logging (e.g., "Odds API NBA games").
+
+    Returns:
+        Tuple of (data, status_code):
+            - data: JSON response (dict or list), or None on failure
+            - status_code: HTTP status code, or 0 if request failed entirely
+
+    Example:
+        >>> data, status = api_request(session, url, params={"key": "value"}, context="Polymarket")
+        >>> if status == 200 and data:
+        ...     process(data)
+    """
+    last_error: Optional[Exception] = None
+    context_str = f" [{context}]" if context else ""
+
+    for attempt in range(retries + 1):
+        try:
+            resp = session.get(url, params=params, timeout=timeout)
+
+            # Success
+            if resp.status_code == 200:
+                try:
+                    return resp.json(), 200
+                except ValueError as e:
+                    ingest_logger.warning(f"Invalid JSON response{context_str}: {e}")
+                    return None, 200
+
+            # Client errors (don't retry)
+            if 400 <= resp.status_code < 500:
+                if resp.status_code == 401:
+                    ingest_logger.error(f"Unauthorized{context_str}: Check API key")
+                elif resp.status_code == 429:
+                    ingest_logger.warning(f"Rate limited{context_str}: {url}")
+                    # Rate limit - wait longer before retry
+                    if attempt < retries:
+                        time.sleep(5 * (attempt + 1))
+                        continue
+                else:
+                    ingest_logger.warning(
+                        f"Client error {resp.status_code}{context_str}: {url}"
+                    )
+                return None, resp.status_code
+
+            # Server errors (retry)
+            if resp.status_code >= 500:
+                ingest_logger.warning(
+                    f"Server error {resp.status_code}{context_str} "
+                    f"(attempt {attempt + 1}/{retries + 1})"
+                )
+                if attempt < retries:
+                    time.sleep(1.5 ** attempt)
+                    continue
+                return None, resp.status_code
+
+            return None, resp.status_code
+
+        except requests.exceptions.Timeout as e:
+            last_error = e
+            ingest_logger.warning(
+                f"Timeout{context_str} (attempt {attempt + 1}/{retries + 1}): {url}"
+            )
+        except requests.exceptions.ConnectionError as e:
+            last_error = e
+            ingest_logger.warning(
+                f"Connection error{context_str} (attempt {attempt + 1}/{retries + 1})"
+            )
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            ingest_logger.warning(
+                f"Request failed{context_str} (attempt {attempt + 1}/{retries + 1}): {e}"
+            )
+
+        # Wait before retry (exponential backoff)
+        if attempt < retries:
+            time.sleep(1.5 ** attempt)
+
+    ingest_logger.error(
+        f"All {retries + 1} attempts failed{context_str}: {last_error}"
+    )
+    return None, 0
+
+
+def validate_api_key(api_key: Optional[str], source_name: str) -> bool:
+    """
+    Validate that an API key is present and properly formatted.
+
+    Args:
+        api_key: The API key to validate.
+        source_name: Name of the API source for error messages.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    if not api_key:
+        ingest_logger.error(f"{source_name}: API key not configured")
+        return False
+    if len(api_key) < 10:
+        ingest_logger.warning(f"{source_name}: API key looks invalid (too short)")
+        return False
+    return True
 
 
 # =============================================================================
@@ -135,13 +272,12 @@ def fetch_odds_api_games(
                 "dateFormat": "iso",
             }
 
-            # Make request with error handling
-            try:
-                resp = session.get(url, params=params, timeout=20)
-                data = resp.json() if resp.status_code == 200 else []
-            except (requests.RequestException, ValueError) as e:
-                print(f"  ⚠️  {sport}/{market_type}: {e}")
-                data = []
+            # Make request with automatic retry
+            data, status = api_request(
+                session, url, params=params, timeout=20,
+                context=f"Odds API {sport}/{market_type}"
+            )
+            data = data if data and status == 200 else []
 
             print(f"  {sport}/{market_type}: {len(data)} games")
             time.sleep(delay)
@@ -365,17 +501,15 @@ def fetch_odds_api_futures(
     for sport_key, name in FUTURES.items():
         print(f"  {name}...", end=" ")
 
-        try:
-            resp = session.get(
-                f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds",
-                params={"apiKey": api_key, "regions": "us", "oddsFormat": "decimal"},
-                timeout=15,
-            )
-        except requests.RequestException as e:
-            print(f"failed: {e}")
-            continue
+        data, status = api_request(
+            session,
+            f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds",
+            params={"apiKey": api_key, "regions": "us", "oddsFormat": "decimal"},
+            timeout=15,
+            context=f"Odds API futures {name}"
+        )
 
-        if resp.status_code != 200:
+        if status != 200 or not data:
             print("failed")
             continue
 
@@ -391,7 +525,7 @@ def fetch_odds_api_futures(
         }
 
         book_count = 0
-        for event in resp.json():
+        for event in data:
             for book in event.get("bookmakers", []):
                 if book["key"] not in books:
                     continue
@@ -509,29 +643,27 @@ def fetch_odds_api_player_props(
 
             # Fetch player props for this event
             for prop_market in prop_markets:
-                try:
-                    url = f"https://api.the-odds-api.com/v4/sports/{sport}/events/{event_id}/odds"
-                    params = {
-                        "apiKey": api_key,
-                        "regions": "us",
-                        "markets": prop_market,
-                        "oddsFormat": "decimal",
-                    }
+                url = f"https://api.the-odds-api.com/v4/sports/{sport}/events/{event_id}/odds"
+                params = {
+                    "apiKey": api_key,
+                    "regions": "us",
+                    "markets": prop_market,
+                    "oddsFormat": "decimal",
+                }
 
-                    resp = session.get(url, params=params, timeout=15)
-                    time.sleep(delay)
+                data, status = api_request(
+                    session, url, params=params, timeout=15,
+                    context=f"Odds API props {game_id}/{prop_market}"
+                )
+                time.sleep(delay)
 
-                    if resp.status_code != 200:
-                        continue
+                if status != 200 or not data:
+                    continue
 
-                    data = resp.json()
-                    prop_rows = _parse_player_props(
-                        data, game_id, prop_market, books, now
-                    )
-                    rows.extend(prop_rows)
-
-                except (requests.RequestException, ValueError) as e:
-                    print(f"    ⚠️ {game_id} {prop_market}: {e}")
+                prop_rows = _parse_player_props(
+                    data, game_id, prop_market, books, now
+                )
+                rows.extend(prop_rows)
 
             games_processed += 1
 
@@ -561,29 +693,27 @@ def _find_odds_api_event_id(
     Returns:
         Event ID string or None if not found.
     """
-    try:
-        url = f"https://api.the-odds-api.com/v4/sports/{sport}/events"
-        params = {"apiKey": api_key}
+    url = f"https://api.the-odds-api.com/v4/sports/{sport}/events"
+    params = {"apiKey": api_key}
 
-        resp = session.get(url, params=params, timeout=15)
-        time.sleep(delay)
+    events, status = api_request(
+        session, url, params=params, timeout=15,
+        context=f"Odds API events {sport}"
+    )
+    time.sleep(delay)
 
-        if resp.status_code != 200:
-            return None
+    if status != 200 or not events:
+        return None
 
-        events = resp.json()
-        home = normalize_team(game.get("home_team", ""))
-        away = normalize_team(game.get("away_team", ""))
+    home = normalize_team(game.get("home_team", ""))
+    away = normalize_team(game.get("away_team", ""))
 
-        for event in events:
-            event_home = normalize_team(event.get("home_team", ""))
-            event_away = normalize_team(event.get("away_team", ""))
+    for event in events:
+        event_home = normalize_team(event.get("home_team", ""))
+        event_away = normalize_team(event.get("away_team", ""))
 
-            if event_home == home and event_away == away:
-                return event.get("id")
-
-    except (requests.RequestException, ValueError):
-        pass
+        if event_home == home and event_away == away:
+            return event.get("id")
 
     return None
 
@@ -694,22 +824,17 @@ def fetch_polymarket(session: requests.Session, config: dict[str, Any]) -> Fetch
     # Fetch all open markets with pagination
     all_markets: list[dict] = []
     for offset in range(0, 1000, 100):
-        try:
-            resp = session.get(
-                "https://gamma-api.polymarket.com/markets",
-                params={"closed": "false", "limit": 100, "offset": offset},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                break
-            data = resp.json()
-            if not data:
-                break
-            all_markets.extend(data)
-            time.sleep(delay)
-        except (requests.RequestException, ValueError) as e:
-            print(f"  ⚠️  Polymarket page {offset}: {e}")
+        data, status = api_request(
+            session,
+            "https://gamma-api.polymarket.com/markets",
+            params={"closed": "false", "limit": 100, "offset": offset},
+            timeout=15,
+            context=f"Polymarket markets page {offset // 100}"
+        )
+        if status != 200 or not data:
             break
+        all_markets.extend(data)
+        time.sleep(delay)
 
     print(f"  Fetched {len(all_markets)} markets")
 
@@ -948,70 +1073,67 @@ def fetch_polymarket_games(
     # Fetch events by slug
     events_found = 0
     for slug, away_team, home_team in slugs_to_try:
-        try:
-            resp = session.get(
-                "https://gamma-api.polymarket.com/events",
-                params={"slug": slug},
-                timeout=10,
+        data, status = api_request(
+            session,
+            "https://gamma-api.polymarket.com/events",
+            params={"slug": slug},
+            timeout=10,
+            retries=2,  # Fewer retries for game lookups
+            context=f"Polymarket event {slug}"
+        )
+
+        if status == 200 and data and isinstance(data, list) and len(data) > 0:
+            event = data[0]
+            events_found += 1
+
+            # Parse the event
+            title = event.get("title", "")
+            markets = event.get("markets", [])
+
+            # Extract team names from title if different
+            title_match = re.match(
+                r"(.+?)\s+(?:vs\.?|@)\s+(.+)",
+                title,
+                re.IGNORECASE,
             )
+            if title_match:
+                poly_away = title_match.group(1).strip()
+                poly_home = title_match.group(2).strip()
+            else:
+                poly_away = away_team
+                poly_home = home_team
 
-            if resp.status_code == 200:
-                data = resp.json()
-                if data and isinstance(data, list) and len(data) > 0:
-                    event = data[0]
-                    events_found += 1
+            game_id = f"poly_{slug}"
 
-                    # Parse the event
-                    title = event.get("title", "")
-                    markets = event.get("markets", [])
+            # Parse date from slug
+            date_str = "-".join(slug.split("-")[-3:])
 
-                    # Extract team names from title if different
-                    title_match = re.match(
-                        r"(.+?)\s+(?:vs\.?|@)\s+(.+)",
-                        title,
-                        re.IGNORECASE,
-                    )
-                    if title_match:
-                        poly_away = title_match.group(1).strip()
-                        poly_home = title_match.group(2).strip()
-                    else:
-                        poly_away = away_team
-                        poly_home = home_team
+            league_prefix = slug.split("-")[0]
+            league = {
+                "nba": "basketball_nba",
+                "nhl": "icehockey_nhl",
+                "nfl": "americanfootball_nfl",
+                "mlb": "baseball_mlb",
+            }.get(league_prefix, "unknown")
 
-                    game_id = f"poly_{slug}"
+            games[game_id] = {
+                "game_id": game_id,
+                "league": league,
+                "commence_time": date_str,
+                "home_team": poly_home,
+                "away_team": poly_away,
+                "last_refreshed": now,
+            }
 
-                    # Parse date from slug
-                    date_str = "-".join(slug.split("-")[-3:])
+            for market in markets:
+                market_rows = _parse_polymarket_game_market(
+                    market, game_id, poly_home, poly_away, now
+                )
+                rows.extend(market_rows)
 
-                    league_prefix = slug.split("-")[0]
-                    league = {
-                        "nba": "basketball_nba",
-                        "nhl": "icehockey_nhl",
-                        "nfl": "americanfootball_nfl",
-                        "mlb": "baseball_mlb",
-                    }.get(league_prefix, "unknown")
+            print(f"    ✓ {slug}: {len(markets)} markets")
 
-                    games[game_id] = {
-                        "game_id": game_id,
-                        "league": league,
-                        "commence_time": date_str,
-                        "home_team": poly_home,
-                        "away_team": poly_away,
-                        "last_refreshed": now,
-                    }
-
-                    for market in markets:
-                        market_rows = _parse_polymarket_game_market(
-                            market, game_id, poly_home, poly_away, now
-                        )
-                        rows.extend(market_rows)
-
-                    print(f"    ✓ {slug}: {len(markets)} markets")
-
-            time.sleep(delay)
-
-        except (requests.RequestException, ValueError) as e:
-            print(f"    ⚠️ {slug}: {e}")
+        time.sleep(delay)
 
     print(f"  Games: {events_found}, Markets: {len(rows)}")
     return games, rows
@@ -1235,30 +1357,26 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
     all_markets: list[dict] = []
     cursor: Optional[str] = None
 
-    for _ in range(10):  # Max 1000 markets
+    for page in range(10):  # Max 1000 markets
         params: dict[str, Any] = {"limit": 100, "status": "open"}
         if cursor:
             params["cursor"] = cursor
 
-        try:
-            resp = session.get(
-                "https://api.elections.kalshi.com/trade-api/v2/markets",
-                params=params,
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                break
+        data, status = api_request(
+            session,
+            "https://api.elections.kalshi.com/trade-api/v2/markets",
+            params=params,
+            timeout=15,
+            context=f"Kalshi markets page {page}"
+        )
+        if status != 200 or not data:
+            break
 
-            data = resp.json()
-            all_markets.extend(data.get("markets", []))
-            cursor = data.get("cursor")
-            time.sleep(delay * 0.5)
+        all_markets.extend(data.get("markets", []))
+        cursor = data.get("cursor")
+        time.sleep(delay * 0.5)
 
-            if not cursor or len(data.get("markets", [])) < 100:
-                break
-
-        except (requests.RequestException, ValueError) as e:
-            print(f"  ⚠️  Kalshi: {e}")
+        if not cursor or len(data.get("markets", [])) < 100:
             break
 
     print(f"  Fetched {len(all_markets)} parlay markets")
@@ -1281,27 +1399,26 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
     # Fetch individual markets with prices
     fetched = 0
     for ticker in sports_tickers:
-        try:
-            resp = session.get(
-                f"https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}",
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                continue
+        data, status = api_request(
+            session,
+            f"https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}",
+            timeout=10,
+            retries=1,  # Single retry for individual markets
+            context=f"Kalshi market {ticker}"
+        )
+        if status != 200 or not data:
+            continue
 
-            market_data = resp.json().get("market", {})
-            result = _parse_kalshi_market(ticker, market_data, now)
+        market_data = data.get("market", {})
+        result = _parse_kalshi_market(ticker, market_data, now)
 
-            if result:
-                game_record, row = result
-                games[game_record["game_id"]] = game_record
-                rows.append(row)
-                fetched += 1
+        if result:
+            game_record, row = result
+            games[game_record["game_id"]] = game_record
+            rows.append(row)
+            fetched += 1
 
-            time.sleep(delay * 0.2)
-
-        except (requests.RequestException, ValueError):
-            pass
+        time.sleep(delay * 0.2)
 
     print(f"  Fetched {fetched} markets with prices")
     return games, rows
