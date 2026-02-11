@@ -128,7 +128,7 @@ def run_full_pipeline() -> dict[str, Any]:
             print("\n" + "="*70)
             print("TOP 5 ARBITRAGE OPPORTUNITIES")
             print("="*70)
-            for i, arb in enumerate(all_arbs[:5], 1):
+            for i, arb in enumerate(all_arbs[:5], 1): 
                 category = arb.get("category", "unknown").upper()
                 player = arb.get("player", "")
                 if player:
