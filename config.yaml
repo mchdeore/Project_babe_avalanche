@@ -142,3 +142,25 @@ arbitrage:
   
   # Bankroll for stake calculations
   reference_bankroll: 100
+  
+  # -----------------------------------------------------------------------------
+  # PLATFORM FEES (as decimal, e.g., 0.02 = 2%)
+  # -----------------------------------------------------------------------------
+  # These fees are subtracted from gross profit to show net profit.
+  # Sportsbooks: vig is already removed via de-vigging, no additional fee.
+  # Open markets: trading fees apply on winning bets.
+  
+  fees:
+    # Sportsbooks (vig already removed, no explicit trading fee)
+    draftkings: 0.0
+    fanduel: 0.0
+    betmgm: 0.0
+    betrivers: 0.0
+    betonlineag: 0.0
+    
+    # Open/Prediction Markets (trading fees on winnings)
+    polymarket: 0.02      # ~2% trading fee
+    kalshi: 0.01          # ~1% fee (varies by contract)
+    
+    # Default fee for unknown providers
+    default: 0.0

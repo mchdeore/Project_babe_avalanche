@@ -118,7 +118,7 @@ def run_full_pipeline() -> dict[str, Any]:
             print("TOP 5 OPPORTUNITIES (ALL CATEGORIES)")
             print("="*70)
             for arb in all_opps[:5]:
-                print_opportunity(arb)
+                print_opportunity(arb, config)
         else:
             print("\n⚠️  No arbitrage opportunities found at current threshold")
             print(f"   Minimum edge: {min_edge:.2%}")
@@ -186,7 +186,7 @@ def run_detect_only() -> dict[str, list]:
             if opportunities:
                 print(f"\n--- {category.upper().replace('_', ' ')} ---")
                 for arb in opportunities:
-                    print_opportunity(arb)
+                    print_opportunity(arb, config)
 
         return results
 
@@ -337,7 +337,7 @@ def main() -> int:
             print("OPEN MARKET ARBITRAGE")
             print(f"{'='*70}")
             for arb in arbs:
-                print_opportunity(arb)
+                print_opportunity(arb, config)
             print(f"\n✅ Found {len(arbs)} open market opportunities")
         finally:
             conn.close()
@@ -356,7 +356,7 @@ def main() -> int:
             print("SPORTSBOOK ARBITRAGE")
             print(f"{'='*70}")
             for arb in arbs:
-                print_opportunity(arb)
+                print_opportunity(arb, config)
             print(f"\n✅ Found {len(arbs)} sportsbook opportunities")
         finally:
             conn.close()
@@ -375,7 +375,7 @@ def main() -> int:
             print("CROSS-MARKET ARBITRAGE")
             print(f"{'='*70}")
             for arb in arbs:
-                print_opportunity(arb)
+                print_opportunity(arb, config)
             print(f"\n✅ Found {len(arbs)} cross-market opportunities")
         finally:
             conn.close()

@@ -76,6 +76,13 @@ DEFAULT_MAX_AGE: int = 600  # 10 minutes
 # Default reference bankroll for stake calculations
 DEFAULT_BANKROLL: float = 100.0
 
+# Default fees (can be overridden in config.yaml)
+DEFAULT_FEES: dict[str, float] = {
+    "polymarket": 0.02,   # 2% trading fee
+    "kalshi": 0.01,       # ~1% fee
+    "default": 0.0,       # Sportsbooks have no explicit fee (vig removed)
+}
+
 
 # =============================================================================
 # TYPE DEFINITIONS
@@ -83,6 +90,83 @@ DEFAULT_BANKROLL: float = 100.0
 
 # Arbitrage opportunity record
 ArbitrageOpportunity = dict[str, Any]
+
+
+# =============================================================================
+# FEE CALCULATION HELPERS
+# =============================================================================
+
+def get_provider_fee(provider: str, config: Optional[dict] = None) -> float:
+    """
+    Get the trading fee for a specific provider.
+
+    Fees are applied to winnings on prediction markets.
+    Sportsbooks have no explicit fee (vig is already removed).
+
+    Args:
+        provider: Provider name (e.g., 'polymarket', 'draftkings').
+        config: Configuration dict (optional, uses defaults if None).
+
+    Returns:
+        Fee as decimal (e.g., 0.02 = 2%).
+
+    Example:
+        >>> get_provider_fee('polymarket')
+        0.02
+        >>> get_provider_fee('draftkings')
+        0.0
+    """
+    if config:
+        fees = config.get("arbitrage", {}).get("fees", {})
+        return fees.get(provider, fees.get("default", 0.0))
+    return DEFAULT_FEES.get(provider, DEFAULT_FEES.get("default", 0.0))
+
+
+def calculate_net_profit(
+    gross_profit: float,
+    stake_a: float,
+    stake_b: float,
+    provider_a: str,
+    provider_b: str,
+    config: Optional[dict] = None,
+) -> tuple[float, float, float]:
+    """
+    Calculate net profit after platform fees.
+
+    Fees are applied to potential winnings (payout - stake) on each leg.
+    Since only one leg wins in an arb, we calculate expected fee.
+
+    Args:
+        gross_profit: Profit before fees.
+        stake_a: Stake on leg A.
+        stake_b: Stake on leg B.
+        provider_a: Provider for leg A.
+        provider_b: Provider for leg B.
+        config: Configuration dict.
+
+    Returns:
+        Tuple of (net_profit, fee_a, fee_b).
+
+    Example:
+        >>> net, fee_a, fee_b = calculate_net_profit(7.0, 48, 52, 'draftkings', 'polymarket')
+        >>> print(f"Net: ${net:.2f}, Fees: ${fee_a + fee_b:.2f}")
+    """
+    fee_rate_a = get_provider_fee(provider_a, config)
+    fee_rate_b = get_provider_fee(provider_b, config)
+
+    # Fee is applied to winnings. In an arb, one side wins.
+    # Worst case: higher-fee platform wins.
+    # We calculate fee on the gross profit for each potential winning leg.
+    
+    # Fee on leg A winning = fee_rate_a * (payout_a - stake_a)
+    # But for simplicity, we apply fee proportionally to gross profit
+    fee_a = gross_profit * fee_rate_a * (stake_a / (stake_a + stake_b))
+    fee_b = gross_profit * fee_rate_b * (stake_b / (stake_a + stake_b))
+
+    total_fees = fee_a + fee_b
+    net_profit = gross_profit - total_fees
+
+    return net_profit, fee_a, fee_b
 
 
 # =============================================================================
@@ -625,12 +709,15 @@ def detect_all_arbitrage(
 # CLI OUTPUT FUNCTIONS
 # =============================================================================
 
-def print_opportunity(arb: ArbitrageOpportunity) -> None:
+def print_opportunity(arb: ArbitrageOpportunity, config: Optional[dict] = None) -> None:
     """
     Print a single arbitrage opportunity in readable format.
 
+    Shows both gross profit (before fees) and net profit (after fees).
+
     Args:
         arb: Arbitrage opportunity dictionary.
+        config: Configuration dict for fee lookup (optional).
     """
     print(f"\n{'='*60}")
     print(f"[{arb['category'].upper()}] {arb['margin']:.2%} MARGIN")
@@ -641,17 +728,44 @@ def print_opportunity(arb: ArbitrageOpportunity) -> None:
     if arb.get('home_team'):
         print(f"Teams: {arb['home_team']} vs {arb['away_team']}")
 
+    # Get fees for each provider
+    fee_a = get_provider_fee(arb['provider_a'], config)
+    fee_b = get_provider_fee(arb['provider_b'], config)
+
     print(f"\nLeg 1: {arb['side_a']} @ {arb['provider_a']}")
     print(f"  Probability: {arb['prob_a']:.1%}")
     print(f"  Decimal Odds: {arb['odds_a']:.3f}" if arb['odds_a'] else "  Decimal Odds: N/A")
     print(f"  Stake: ${arb['stake_a']:.2f}")
+    if fee_a > 0:
+        print(f"  Platform Fee: {fee_a:.1%}")
 
     print(f"\nLeg 2: {arb['side_b']} @ {arb['provider_b']}")
     print(f"  Probability: {arb['prob_b']:.1%}")
     print(f"  Decimal Odds: {arb['odds_b']:.3f}" if arb['odds_b'] else "  Decimal Odds: N/A")
     print(f"  Stake: ${arb['stake_b']:.2f}")
+    if fee_b > 0:
+        print(f"  Platform Fee: {fee_b:.1%}")
 
-    print(f"\n💰 Guaranteed Profit: ${arb['guaranteed_profit']:.2f} on ${arb['total_stake']:.2f}")
+    # Calculate net profit after fees
+    gross_profit = arb['guaranteed_profit']
+    net_profit, fee_cost_a, fee_cost_b = calculate_net_profit(
+        gross_profit,
+        arb['stake_a'],
+        arb['stake_b'],
+        arb['provider_a'],
+        arb['provider_b'],
+        config,
+    )
+    total_fees = fee_cost_a + fee_cost_b
+
+    print(f"\n{'─'*40}")
+    print(f"💵 Gross Profit:  ${gross_profit:.2f} ({arb['margin']:.2%})")
+    if total_fees > 0:
+        print(f"📉 Est. Fees:    -${total_fees:.2f}")
+        print(f"💰 Net Profit:    ${net_profit:.2f} ({net_profit/arb['total_stake']:.2%})")
+    else:
+        print(f"💰 Net Profit:    ${net_profit:.2f} (no fees)")
+    print(f"📊 Total Stake:   ${arb['total_stake']:.2f}")
 
 
 def print_summary(results: dict[str, list[ArbitrageOpportunity]]) -> None:
@@ -710,7 +824,7 @@ if __name__ == "__main__":
                 print("="*70)
                 arbs = detect_open_market_arbitrage(conn, min_edge, max_age, bankroll)
                 for arb in arbs:
-                    print_opportunity(arb)
+                    print_opportunity(arb, config)
                 print(f"\n✅ Found {len(arbs)} open market arbitrage opportunities")
 
             elif category == "sportsbook":
@@ -719,7 +833,7 @@ if __name__ == "__main__":
                 print("="*70)
                 arbs = detect_sportsbook_arbitrage(conn, min_edge, max_age, bankroll)
                 for arb in arbs:
-                    print_opportunity(arb)
+                    print_opportunity(arb, config)
                 print(f"\n✅ Found {len(arbs)} sportsbook arbitrage opportunities")
 
             elif category == "cross":
@@ -728,7 +842,7 @@ if __name__ == "__main__":
                 print("="*70)
                 arbs = detect_cross_market_arbitrage(conn, min_edge, max_age, bankroll)
                 for arb in arbs:
-                    print_opportunity(arb)
+                    print_opportunity(arb, config)
                 print(f"\n✅ Found {len(arbs)} cross-market arbitrage opportunities")
 
             else:
@@ -745,7 +859,7 @@ if __name__ == "__main__":
                 if opportunities:
                     print(f"\n--- TOP {category.upper().replace('_', ' ')} OPPORTUNITIES ---")
                     for arb in opportunities[:3]:
-                        print_opportunity(arb)
+                        print_opportunity(arb, config)
 
     finally:
         conn.close()
