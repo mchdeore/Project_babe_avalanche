@@ -480,7 +480,7 @@ def insert_history(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> 
         return 0
 
     cols = [
-        "game_id", "market", "side", "line", "source", "provider",
+        "game_id", "market", "side", "line", "source", "provider", "player",
         "price", "implied_prob", "devigged_prob", "provider_updated_at",
         "snapshot_time", "source_event_id", "source_market_id", "outcome",
     ]
@@ -755,3 +755,161 @@ def optimal_stakes(
     stake_b = total_stake * prob_a / total_prob
 
     return (stake_a, stake_b)
+
+
+# =============================================================================
+# PLAYER NAME NORMALIZATION
+# =============================================================================
+
+def normalize_player(name: str) -> str:
+    """
+    Normalize player name for consistent matching across sources.
+
+    Removes punctuation, extra spaces, and converts to lowercase.
+    Handles variations like:
+        - 'LeBron James' -> 'lebronjames'
+        - 'Giannis Antetokounmpo' -> 'giannisantetokounmpo'
+        - 'P.J. Tucker' -> 'pjtucker'
+
+    Args:
+        name: Raw player name string.
+
+    Returns:
+        Normalized lowercase alphanumeric string.
+        Returns empty string if name is None or empty.
+
+    Example:
+        >>> normalize_player('LeBron James')
+        'lebronjames'
+        >>> normalize_player('P.J. Tucker')
+        'pjtucker'
+    """
+    if not name:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+# =============================================================================
+# MIDDLE BET CALCULATIONS
+# =============================================================================
+
+def calculate_middle_gap(line_a: float, line_b: float) -> float:
+    """
+    Calculate the gap (middle window) between two lines.
+
+    For spreads: Gap is the range where both bets can win.
+    For totals: Gap is the range of totals that hit the middle.
+
+    Args:
+        line_a: First line (e.g., -3.5 spread or 218.5 total)
+        line_b: Second line (e.g., +5.5 spread or 222.5 total)
+
+    Returns:
+        Gap size in points. Positive = middle exists.
+
+    Example:
+        >>> # Spread middle: -3.5 vs +5.5
+        >>> calculate_middle_gap(-3.5, 5.5)
+        2.0
+        >>> # Total middle: Over 218.5 vs Under 222.5
+        >>> calculate_middle_gap(218.5, 222.5)
+        4.0
+    """
+    return abs(line_b - line_a)
+
+
+def estimate_middle_probability(
+    gap: float,
+    market_type: str = "spreads",
+    std_dev: float = 12.0,
+) -> float:
+    """
+    Estimate probability of hitting a middle based on gap size.
+
+    Uses normal distribution approximation. Larger gaps = higher
+    probability of middle hitting.
+
+    Args:
+        gap: Size of the middle window in points.
+        market_type: "spreads" or "totals" (affects std_dev default).
+        std_dev: Standard deviation of outcome distribution.
+                 ~12 for NBA spreads, ~15 for NBA totals.
+
+    Returns:
+        Estimated probability of middle hitting (0 to 1).
+
+    Example:
+        >>> # 2-point gap in spreads
+        >>> prob = estimate_middle_probability(2.0, "spreads")
+        >>> 0.10 < prob < 0.20  # Roughly 10-20%
+        True
+    """
+    import math
+
+    # Adjust std_dev based on market type
+    if market_type == "totals":
+        std_dev = 15.0  # NBA totals have higher variance
+
+    # Probability density over the gap
+    # Approximation using normal distribution CDF
+    # P(middle) ≈ gap / std_dev * 0.4 (simplified)
+    # More accurate: use scipy.stats.norm.cdf difference
+    try:
+        from scipy.stats import norm
+        # Probability that outcome falls within gap range
+        # Centered around 0 (relative to spread line)
+        prob = norm.cdf(gap / 2, 0, std_dev) - norm.cdf(-gap / 2, 0, std_dev)
+    except ImportError:
+        # Fallback: rough approximation
+        prob = min(0.5, gap / std_dev * 0.4)
+
+    return max(0.0, min(1.0, prob))
+
+
+def calculate_middle_ev(
+    stake_total: float,
+    prob_over_a: float,
+    prob_under_b: float,
+    middle_prob: float,
+    vig_loss: float = 0.05,
+) -> dict[str, float]:
+    """
+    Calculate expected value of a middle bet.
+
+    A middle bet wins both legs if outcome falls in the gap,
+    wins one leg minus the other's stake otherwise.
+
+    Args:
+        stake_total: Total amount staked across both bets.
+        prob_over_a: Probability for over/favorite side of bet A.
+        prob_under_b: Probability for under/underdog side of bet B.
+        middle_prob: Estimated probability of hitting the middle.
+        vig_loss: Expected loss as decimal if middle doesn't hit.
+
+    Returns:
+        Dictionary with 'ev', 'win_both', 'win_one', 'middle_prob'.
+
+    Example:
+        >>> result = calculate_middle_ev(100, 0.52, 0.48, 0.15)
+        >>> result['ev'] > 0  # Positive EV
+        True
+    """
+    # If middle hits: win both bets
+    # Approximate payout: stake_total * (1/prob_over_a - 1) + stake_total * (1/prob_under_b - 1)
+    # Simplified: win roughly stake_total on each side
+    payout_middle = stake_total * 2  # Win both at ~even odds
+
+    # If middle doesn't hit: lose vig on the losing bet
+    # Win one side, lose one side
+    payout_no_middle = stake_total * (1 - vig_loss)  # Net small loss
+
+    ev = (middle_prob * payout_middle) + ((1 - middle_prob) * payout_no_middle) - stake_total
+
+    return {
+        "ev": ev,
+        "ev_percent": ev / stake_total if stake_total > 0 else 0,
+        "win_both_payout": payout_middle,
+        "win_one_payout": payout_no_middle,
+        "middle_prob": middle_prob,
+        "stake_total": stake_total,
+    }

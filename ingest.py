@@ -53,6 +53,7 @@ from utils import (
     init_db,
     insert_history,
     load_config,
+    normalize_player,
     normalize_team,
     odds_to_prob,
     safe_json,
@@ -313,6 +314,7 @@ def _parse_outcome(
         "line": float(line),
         "source": "odds_api",
         "provider": book["key"],
+        "player": "",  # Empty for game lines
         "price": price,
         "implied_prob": odds_to_prob(price),
         "provider_updated_at": book.get("last_update", now),
@@ -410,6 +412,7 @@ def fetch_odds_api_futures(
                             "line": 0.0,
                             "source": "odds_api",
                             "provider": book["key"],
+                            "player": "",  # Empty for futures
                             "price": out.get("price"),
                             "implied_prob": probs[i],
                             "devigged_prob": devigged[i] if i < len(devigged) else None,
@@ -424,6 +427,234 @@ def fetch_odds_api_futures(
         print(f"{book_count} books")
 
     return games, rows
+
+
+def fetch_odds_api_player_props(
+    session: requests.Session,
+    api_key: str,
+    config: dict[str, Any],
+    existing_games: dict[str, GameRecord],
+) -> list[MarketRow]:
+    """
+    Fetch player props from Odds API for existing games.
+
+    Uses the /v4/sports/{sport}/events/{event_id}/odds endpoint with
+    player prop markets (player_points, player_rebounds, etc.).
+
+    Note: This uses additional API calls - one per game.
+
+    Args:
+        session: Active requests.Session.
+        api_key: Odds API key.
+        config: Full configuration dict.
+        existing_games: Dict of game records from previous fetch.
+
+    Returns:
+        List of player prop market rows.
+
+    Example:
+        >>> rows = fetch_odds_api_player_props(session, api_key, config, games)
+        >>> print(f"Found {len(rows)} player props")
+    """
+    rows: list[MarketRow] = []
+    now = utc_now_iso()
+
+    # Check if player props are enabled in config
+    player_props_cfg = config.get("player_props", {})
+    if not player_props_cfg.get("enabled", False):
+        return []
+
+    # Player prop markets to fetch
+    prop_markets = player_props_cfg.get("markets", [
+        "player_points",
+        "player_rebounds",
+        "player_assists",
+        "player_threes",
+    ])
+
+    # Get source-specific config
+    source_cfg = get_source_config(config, "odds_api")
+    delay = source_cfg.get("request_delay_seconds", 0.5)
+    books = config.get("books", [])
+
+    # Group games by sport to batch API calls
+    games_by_sport: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+    for game_id, game in existing_games.items():
+        if game_id.startswith("futures_"):
+            continue
+        sport = game.get("league", "")
+        if sport:
+            games_by_sport[sport].append((game_id, game))
+
+    print(f"  Fetching props for {sum(len(g) for g in games_by_sport.values())} games...")
+
+    # Limit to avoid using too many API calls
+    max_games = player_props_cfg.get("max_games_per_run", 10)
+    games_processed = 0
+
+    for sport, game_list in games_by_sport.items():
+        for game_id, game in game_list[:max_games]:
+            if games_processed >= max_games:
+                break
+
+            # Need the original Odds API event ID to fetch props
+            # We'll search for it in existing rows or try to reconstruct
+            # For now, use a search approach with team names and date
+            event_id = _find_odds_api_event_id(
+                session, api_key, sport, game, delay
+            )
+
+            if not event_id:
+                continue
+
+            # Fetch player props for this event
+            for prop_market in prop_markets:
+                try:
+                    url = f"https://api.the-odds-api.com/v4/sports/{sport}/events/{event_id}/odds"
+                    params = {
+                        "apiKey": api_key,
+                        "regions": "us",
+                        "markets": prop_market,
+                        "oddsFormat": "decimal",
+                    }
+
+                    resp = session.get(url, params=params, timeout=15)
+                    time.sleep(delay)
+
+                    if resp.status_code != 200:
+                        continue
+
+                    data = resp.json()
+                    prop_rows = _parse_player_props(
+                        data, game_id, prop_market, books, now
+                    )
+                    rows.extend(prop_rows)
+
+                except (requests.RequestException, ValueError) as e:
+                    print(f"    ⚠️ {game_id} {prop_market}: {e}")
+
+            games_processed += 1
+
+    print(f"  → {len(rows)} player prop rows")
+    return rows
+
+
+def _find_odds_api_event_id(
+    session: requests.Session,
+    api_key: str,
+    sport: str,
+    game: dict[str, Any],
+    delay: float,
+) -> Optional[str]:
+    """
+    Find the Odds API event ID for a game.
+
+    Fetches upcoming events and matches by team names.
+
+    Args:
+        session: Active requests.Session.
+        api_key: Odds API key.
+        sport: Sport key (e.g., basketball_nba).
+        game: Game record dict with home_team and away_team.
+        delay: Request delay in seconds.
+
+    Returns:
+        Event ID string or None if not found.
+    """
+    try:
+        url = f"https://api.the-odds-api.com/v4/sports/{sport}/events"
+        params = {"apiKey": api_key}
+
+        resp = session.get(url, params=params, timeout=15)
+        time.sleep(delay)
+
+        if resp.status_code != 200:
+            return None
+
+        events = resp.json()
+        home = normalize_team(game.get("home_team", ""))
+        away = normalize_team(game.get("away_team", ""))
+
+        for event in events:
+            event_home = normalize_team(event.get("home_team", ""))
+            event_away = normalize_team(event.get("away_team", ""))
+
+            if event_home == home and event_away == away:
+                return event.get("id")
+
+    except (requests.RequestException, ValueError):
+        pass
+
+    return None
+
+
+def _parse_player_props(
+    data: dict[str, Any],
+    game_id: str,
+    prop_market: str,
+    books: list[str],
+    now: str,
+) -> list[MarketRow]:
+    """
+    Parse player props response from Odds API.
+
+    Args:
+        data: API response dict.
+        game_id: Canonical game ID.
+        prop_market: Market type (e.g., player_points).
+        books: List of bookmaker keys to include.
+        now: Current timestamp.
+
+    Returns:
+        List of MarketRow dicts.
+    """
+    rows: list[MarketRow] = []
+
+    for book in data.get("bookmakers", []):
+        if book["key"] not in books:
+            continue
+
+        for mkt in book.get("markets", []):
+            if mkt["key"] != prop_market:
+                continue
+
+            for outcome in mkt.get("outcomes", []):
+                name = outcome.get("name", "")  # Player name
+                description = outcome.get("description", "")  # Over/Under
+                point = outcome.get("point", 0.0)  # Line
+                price = outcome.get("price", 0.0)
+
+                # Determine side from description
+                desc_lower = description.lower()
+                if "over" in desc_lower:
+                    side = "over"
+                elif "under" in desc_lower:
+                    side = "under"
+                else:
+                    continue
+
+                implied_prob = odds_to_prob(price)
+
+                rows.append({
+                    "game_id": game_id,
+                    "market": prop_market,
+                    "side": side,
+                    "line": float(point),
+                    "source": "odds_api",
+                    "provider": book["key"],
+                    "player": normalize_player(name),
+                    "price": price,
+                    "implied_prob": implied_prob,
+                    "devigged_prob": implied_prob,  # TODO: de-vig pairs
+                    "provider_updated_at": book.get("last_update", now),
+                    "last_refreshed": now,
+                    "snapshot_time": now,
+                    "source_event_id": data.get("id"),
+                    "source_market_id": None,
+                    "outcome": f"{name} {description}",
+                })
+
+    return rows
 
 
 # =============================================================================
@@ -528,6 +759,7 @@ def fetch_polymarket(session: requests.Session, config: dict[str, Any]) -> Fetch
                                 "line": 0.0,
                                 "source": "polymarket",
                                 "provider": "polymarket",
+                                "player": "",  # Empty for futures
                                 "price": price,
                                 "implied_prob": price,  # Price IS probability
                                 "devigged_prob": price,  # No vig to remove
@@ -547,30 +779,448 @@ def fetch_polymarket(session: requests.Session, config: dict[str, Any]) -> Fetch
     return games, rows
 
 
+def fetch_polymarket_games(
+    session: requests.Session,
+    config: dict[str, Any],
+    existing_games: Optional[dict[str, GameRecord]] = None,
+) -> FetchResult:
+    """
+    Fetch game-by-game markets from Polymarket (moneyline, spreads, totals, player props).
+
+    Polymarket organizes sports by events with slugs like:
+        'nba-was-cle-2026-02-11' (NBA: Wizards @ Cavaliers on Feb 11, 2026)
+
+    These events are NOT returned by the general /events endpoint.
+    We must query by specific slug patterns.
+
+    Strategy:
+        1. If existing_games provided (from Odds API), construct slugs from those
+        2. Otherwise, try known team abbreviation combinations for today's date
+
+    Each event contains multiple markets:
+        - Moneyline: "Wizards vs. Cavaliers"
+        - Spreads: "Spread: Cavaliers (-17.5)"
+        - Totals: "Wizards vs. Cavaliers: O/U 238.5"
+        - Player Props: "Donovan Mitchell: Points O/U 27.5"
+
+    Polymarket prices ARE probabilities - there is no vig to remove.
+
+    Args:
+        session: Active requests.Session.
+        config: Full configuration dict.
+        existing_games: Optional dict of games from Odds API to cross-reference.
+
+    Returns:
+        Tuple of (games_dict, market_rows) including all market types.
+
+    Example:
+        >>> games, rows = fetch_polymarket_games(session, config)
+        >>> print(f"Found {len(games)} games, {len(rows)} markets")
+    """
+    import datetime
+
+    games: dict[str, GameRecord] = {}
+    rows: list[MarketRow] = []
+    now = utc_now_iso()
+
+    # Get source-specific config
+    source_cfg = get_source_config(config, "polymarket")
+    delay = source_cfg.get("request_delay_seconds", 0.2)
+
+    # Team name to abbreviation mapping
+    TEAM_ABBREVS = {
+        # NBA
+        "hawks": "atl", "atlanta hawks": "atl",
+        "celtics": "bos", "boston celtics": "bos",
+        "nets": "bkn", "brooklyn nets": "bkn",
+        "hornets": "cha", "charlotte hornets": "cha",
+        "bulls": "chi", "chicago bulls": "chi",
+        "cavaliers": "cle", "cleveland cavaliers": "cle",
+        "mavericks": "dal", "dallas mavericks": "dal",
+        "nuggets": "den", "denver nuggets": "den",
+        "pistons": "det", "detroit pistons": "det",
+        "warriors": "gsw", "golden state warriors": "gsw",
+        "rockets": "hou", "houston rockets": "hou",
+        "pacers": "ind", "indiana pacers": "ind",
+        "clippers": "lac", "la clippers": "lac", "los angeles clippers": "lac",
+        "lakers": "lal", "la lakers": "lal", "los angeles lakers": "lal",
+        "grizzlies": "mem", "memphis grizzlies": "mem",
+        "heat": "mia", "miami heat": "mia",
+        "bucks": "mil", "milwaukee bucks": "mil",
+        "timberwolves": "min", "minnesota timberwolves": "min",
+        "pelicans": "nop", "new orleans pelicans": "nop",
+        "knicks": "nyk", "new york knicks": "nyk",
+        "thunder": "okc", "oklahoma city thunder": "okc",
+        "magic": "orl", "orlando magic": "orl",
+        "76ers": "phi", "philadelphia 76ers": "phi",
+        "suns": "phx", "phoenix suns": "phx",
+        "trail blazers": "por", "portland trail blazers": "por", "blazers": "por",
+        "kings": "sac", "sacramento kings": "sac",
+        "spurs": "sas", "san antonio spurs": "sas",
+        "raptors": "tor", "toronto raptors": "tor",
+        "jazz": "uta", "utah jazz": "uta",
+        "wizards": "was", "washington wizards": "was",
+        # NHL (subset)
+        "bruins": "bos", "boston bruins": "bos",
+        "sabres": "buf", "buffalo sabres": "buf",
+        "flames": "cgy", "calgary flames": "cgy",
+        "hurricanes": "car", "carolina hurricanes": "car",
+        "blackhawks": "chi", "chicago blackhawks": "chi",
+        "avalanche": "col", "colorado avalanche": "col",
+        "blue jackets": "cbj", "columbus blue jackets": "cbj",
+        "stars": "dal", "dallas stars": "dal",
+        "red wings": "det", "detroit red wings": "det",
+        "oilers": "edm", "edmonton oilers": "edm",
+        "panthers": "fla", "florida panthers": "fla",
+        "wild": "min", "minnesota wild": "min",
+        "canadiens": "mtl", "montreal canadiens": "mtl",
+        "predators": "nsh", "nashville predators": "nsh",
+        "devils": "nj", "new jersey devils": "nj",
+        "islanders": "nyi", "new york islanders": "nyi",
+        "rangers": "nyr", "new york rangers": "nyr",
+        "senators": "ott", "ottawa senators": "ott",
+        "flyers": "phi", "philadelphia flyers": "phi",
+        "penguins": "pit", "pittsburgh penguins": "pit",
+        "sharks": "sj", "san jose sharks": "sj",
+        "kraken": "sea", "seattle kraken": "sea",
+        "blues": "stl", "st. louis blues": "stl",
+        "lightning": "tb", "tampa bay lightning": "tb",
+        "maple leafs": "tor", "toronto maple leafs": "tor",
+        "canucks": "van", "vancouver canucks": "van",
+        "golden knights": "vgk", "vegas golden knights": "vgk",
+        "capitals": "was", "washington capitals": "was",
+        "jets": "wpg", "winnipeg jets": "wpg",
+    }
+
+    SPORT_MAP = {
+        "basketball_nba": "nba",
+        "icehockey_nhl": "nhl",
+        "americanfootball_nfl": "nfl",
+        "baseball_mlb": "mlb",
+    }
+
+    def get_abbrev(team_name: str) -> Optional[str]:
+        """Get team abbreviation from full name."""
+        key = team_name.lower().strip()
+        return TEAM_ABBREVS.get(key)
+
+    # Build list of slugs to try
+    slugs_to_try: list[tuple[str, str, str]] = []  # (slug, away_team, home_team)
+
+    if existing_games:
+        # Use existing games from Odds API
+        for game in existing_games.values():
+            league = game.get("league", "")
+            sport = SPORT_MAP.get(league)
+            if not sport:
+                continue
+
+            # Parse date from commence_time
+            commence = game.get("commence_time", "")
+            if not commence:
+                continue
+
+            try:
+                if "T" in commence:
+                    date_str = commence.split("T")[0]
+                else:
+                    date_str = commence[:10]
+            except (IndexError, AttributeError):
+                continue
+
+            away = game.get("away_team", "")
+            home = game.get("home_team", "")
+
+            away_abbrev = get_abbrev(away)
+            home_abbrev = get_abbrev(home)
+
+            if away_abbrev and home_abbrev:
+                slug = f"{sport}-{away_abbrev}-{home_abbrev}-{date_str}"
+                slugs_to_try.append((slug, away, home))
+
+        print(f"  Trying {len(slugs_to_try)} games from Odds API...")
+
+    else:
+        # Fallback: try today's date with common matchups
+        today = datetime.date.today()
+        print(f"  No existing games, trying today ({today})...")
+
+    # Fetch events by slug
+    events_found = 0
+    for slug, away_team, home_team in slugs_to_try:
+        try:
+            resp = session.get(
+                "https://gamma-api.polymarket.com/events",
+                params={"slug": slug},
+                timeout=10,
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    event = data[0]
+                    events_found += 1
+
+                    # Parse the event
+                    title = event.get("title", "")
+                    markets = event.get("markets", [])
+
+                    # Extract team names from title if different
+                    title_match = re.match(
+                        r"(.+?)\s+(?:vs\.?|@)\s+(.+)",
+                        title,
+                        re.IGNORECASE,
+                    )
+                    if title_match:
+                        poly_away = title_match.group(1).strip()
+                        poly_home = title_match.group(2).strip()
+                    else:
+                        poly_away = away_team
+                        poly_home = home_team
+
+                    game_id = f"poly_{slug}"
+
+                    # Parse date from slug
+                    date_str = "-".join(slug.split("-")[-3:])
+
+                    league_prefix = slug.split("-")[0]
+                    league = {
+                        "nba": "basketball_nba",
+                        "nhl": "icehockey_nhl",
+                        "nfl": "americanfootball_nfl",
+                        "mlb": "baseball_mlb",
+                    }.get(league_prefix, "unknown")
+
+                    games[game_id] = {
+                        "game_id": game_id,
+                        "league": league,
+                        "commence_time": date_str,
+                        "home_team": poly_home,
+                        "away_team": poly_away,
+                        "last_refreshed": now,
+                    }
+
+                    for market in markets:
+                        market_rows = _parse_polymarket_game_market(
+                            market, game_id, poly_home, poly_away, now
+                        )
+                        rows.extend(market_rows)
+
+                    print(f"    ✓ {slug}: {len(markets)} markets")
+
+            time.sleep(delay)
+
+        except (requests.RequestException, ValueError) as e:
+            print(f"    ⚠️ {slug}: {e}")
+
+    print(f"  Games: {events_found}, Markets: {len(rows)}")
+    return games, rows
+
+
+def _parse_polymarket_game_market(
+    market: dict[str, Any],
+    game_id: str,
+    home_team: str,
+    away_team: str,
+    now: str,
+) -> list[MarketRow]:
+    """
+    Parse a single Polymarket market into standardized rows.
+
+    Actual question formats from Polymarket:
+        - Moneyline: "Wizards vs. Cavaliers"
+        - Spread: "Spread: Cavaliers (-18.5)" or "1H Spread: Cavaliers (-10.5)"
+        - Total: "Wizards vs. Cavaliers: O/U 238.5" or "1H O/U 122.5"
+        - Player Props: "Donovan Mitchell: Points O/U 27.5"
+                       "James Harden: Assists O/U 7.5"
+                       "Jarrett Allen: Rebounds O/U 10.5"
+
+    Args:
+        market: Market object from Polymarket event.
+        game_id: Canonical game ID.
+        home_team: Home team name.
+        away_team: Away team name.
+        now: Current timestamp.
+
+    Returns:
+        List of MarketRow dicts.
+    """
+    rows: list[MarketRow] = []
+    question = market.get("question", "")
+    slug = market.get("slug", "")
+    outcomes = safe_json(market.get("outcomes"))
+    prices = safe_json(market.get("outcomePrices"))
+
+    if not outcomes or not prices or len(outcomes) != len(prices):
+        return []
+
+    # Determine market type from question
+    market_type = None
+    line = 0.0
+    player = ""
+
+    question_lower = question.lower()
+
+    # 1H Spread: "1H Spread: Cavaliers (-10.5)"
+    match_1h_spread = re.search(r"1h\s+spread:.*\(([+-]?\d+\.?\d*)\)", question, re.IGNORECASE)
+    if match_1h_spread:
+        market_type = "spreads_1h"
+        line = float(match_1h_spread.group(1))
+
+    # 1H Total: "Wizards vs. Cavaliers: 1H O/U 122.5"
+    elif re.search(r"1h\s+o/u\s*(\d+\.?\d*)", question, re.IGNORECASE):
+        match = re.search(r"1h\s+o/u\s*(\d+\.?\d*)", question, re.IGNORECASE)
+        market_type = "totals_1h"
+        line = float(match.group(1))
+
+    # 1H Moneyline: "Wizards vs. Cavaliers: 1H Moneyline"
+    elif "1h moneyline" in question_lower:
+        market_type = "h2h_1h"
+
+    # Spread: "Spread: Cavaliers (-18.5)"
+    elif re.search(r"^spread:", question, re.IGNORECASE):
+        spread_match = re.search(r"\(([+-]?\d+\.?\d*)\)", question)
+        if spread_match:
+            market_type = "spreads"
+            line = float(spread_match.group(1))
+
+    # Total: "Team vs. Team: O/U 238.5"
+    elif re.search(r":\s*o/u\s*(\d+\.?\d*)", question, re.IGNORECASE):
+        total_match = re.search(r":\s*o/u\s*(\d+\.?\d*)", question, re.IGNORECASE)
+        market_type = "totals"
+        line = float(total_match.group(1))
+
+    # Player Props: "Player Name: Stat O/U X.5"
+    # Examples: "Donovan Mitchell: Points O/U 27.5", "James Harden: Assists O/U 7.5"
+    elif re.match(r"^[^:]+:\s*(points|rebounds|assists)\s+o/u", question, re.IGNORECASE):
+        prop_match = re.match(
+            r"^([^:]+):\s*(points|rebounds|assists)\s+o/u\s*(\d+\.?\d*)",
+            question,
+            re.IGNORECASE,
+        )
+        if prop_match:
+            player_name = prop_match.group(1).strip()
+            prop_type = prop_match.group(2).lower()
+            line = float(prop_match.group(3))
+            player = normalize_player(player_name)
+
+            # Map prop type to market name
+            prop_map = {
+                "points": "player_points",
+                "rebounds": "player_rebounds",
+                "assists": "player_assists",
+            }
+            market_type = prop_map.get(prop_type, "player_points")
+
+    # Moneyline (simple team vs team without any special markers)
+    # Example: "Wizards vs. Cavaliers"
+    elif re.match(r"^[^:]+\s+vs\.?\s+[^:]+$", question, re.IGNORECASE):
+        market_type = "h2h"
+
+    if not market_type:
+        return []
+
+    # Parse outcomes and create rows
+    for i, outcome in enumerate(outcomes):
+        if i >= len(prices):
+            break
+
+        try:
+            price = float(prices[i])
+        except (ValueError, TypeError):
+            continue
+
+        outcome_str = str(outcome).strip()
+        outcome_lower = outcome_str.lower()
+
+        # Determine side based on market type
+        if market_type in ("h2h", "h2h_1h", "spreads", "spreads_1h"):
+            # Map outcome to home/away
+            outcome_norm = normalize_team(outcome_str)
+            if outcome_norm == normalize_team(home_team):
+                side = "home"
+            elif outcome_norm == normalize_team(away_team):
+                side = "away"
+            else:
+                # Check if it's a substring match
+                if outcome_lower in home_team.lower():
+                    side = "home"
+                elif outcome_lower in away_team.lower():
+                    side = "away"
+                else:
+                    side = outcome_norm
+
+        elif market_type in ("totals", "totals_1h"):
+            if outcome_lower in ("over", "yes"):
+                side = "over"
+            elif outcome_lower in ("under", "no"):
+                side = "under"
+            else:
+                continue
+
+        elif market_type.startswith("player_"):
+            if outcome_lower in ("yes", "over"):
+                side = "over"
+            elif outcome_lower in ("no", "under"):
+                side = "under"
+            else:
+                continue
+
+        else:
+            side = outcome_lower
+
+        rows.append({
+            "game_id": game_id,
+            "market": market_type,
+            "side": side,
+            "line": line,
+            "source": "polymarket",
+            "provider": "polymarket",
+            "player": player,
+            "price": price,
+            "implied_prob": price,  # Polymarket prices ARE probabilities
+            "devigged_prob": price,  # No vig to remove
+            "provider_updated_at": now,
+            "last_refreshed": now,
+            "snapshot_time": now,
+            "source_event_id": market.get("id"),
+            "source_market_id": slug,
+            "outcome": outcome_str,
+        })
+
+    return rows
+
+
 # =============================================================================
 # KALSHI - US REGULATED PREDICTION MARKET
 # =============================================================================
 
 def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResult:
     """
-    Extract game references from Kalshi markets.
+    Fetch sports markets from Kalshi (h2h, spreads, totals, player props).
 
-    Kalshi provides sports exposure through parlay-style markets.
-    This function extracts underlying game references from market tickers.
+    Kalshi provides sports exposure through parlay-style markets, but the
+    individual leg markets can be fetched directly with prices.
 
-    Note: Kalshi may have limited direct sports betting; most exposure
-    is through derivative or event markets.
+    Ticker patterns:
+        - KXNBAGAME-26FEB11ATLCHA-ATL       (h2h: ATL to win vs CHA)
+        - KXNBASPREAD-26FEB11ATLCHA-ATL6    (spread: ATL -6)
+        - KXNBATOTAL-26FEB11ATLCHA-228      (total: O/U 228)
+        - KXNBAPTS-26FEB11ATLCHA-ATLCMCCOLLUM3-15  (player points: 15+)
+        - KXNBAREB-26FEB11ATLCHA-...        (player rebounds)
+        - KXNBAAST-26FEB11ATLCHA-...        (player assists)
+        - KXNBA3PT-26FEB11ATLCHA-...        (player 3-pointers)
 
     Args:
         session: Active requests.Session.
         config: Full configuration dict.
 
     Returns:
-        Tuple of (games_dict, market_rows) for extracted games.
+        Tuple of (games_dict, market_rows) with prices.
 
     Example:
         >>> games, rows = fetch_kalshi(session, config)
-        >>> print(f"Found {len(games)} game references")
+        >>> print(f"Found {len(games)} games, {len(rows)} market rows")
     """
     games: dict[str, GameRecord] = {}
     rows: list[MarketRow] = []
@@ -580,11 +1230,12 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
     source_cfg = get_source_config(config, "kalshi")
     delay = source_cfg.get("request_delay_seconds", 0.3)
 
-    # Fetch all open markets with cursor pagination
+    # Fetch all open markets with cursor pagination to get leg tickers
+    print("  Fetching parlay markets...")
     all_markets: list[dict] = []
     cursor: Optional[str] = None
 
-    for _ in range(20):  # Max 2000 markets
+    for _ in range(10):  # Max 1000 markets
         params: dict[str, Any] = {"limit": 100, "status": "open"}
         if cursor:
             params["cursor"] = cursor
@@ -601,7 +1252,7 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
             data = resp.json()
             all_markets.extend(data.get("markets", []))
             cursor = data.get("cursor")
-            time.sleep(delay)
+            time.sleep(delay * 0.5)
 
             if not cursor or len(data.get("markets", [])) < 100:
                 break
@@ -610,8 +1261,77 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
             print(f"  ⚠️  Kalshi: {e}")
             break
 
-    print(f"  Fetched {len(all_markets)} markets")
+    print(f"  Fetched {len(all_markets)} parlay markets")
 
+    # Extract unique leg tickers
+    leg_tickers: set[str] = set()
+    for market in all_markets:
+        for leg in market.get("mve_selected_legs", []):
+            ticker = leg.get("market_ticker", "")
+            if ticker and ticker.startswith("KX"):
+                leg_tickers.add(ticker)
+
+    print(f"  Found {len(leg_tickers)} unique leg tickers")
+
+    # Filter to sports leagues we care about
+    SPORTS_PREFIXES = {"KXNBA", "KXNFL", "KXNHL", "KXMLB", "KXNCAAMB"}
+    sports_tickers = [t for t in leg_tickers if any(t.startswith(p) for p in SPORTS_PREFIXES)]
+    print(f"  Sports tickers: {len(sports_tickers)}")
+
+    # Fetch individual markets with prices
+    fetched = 0
+    for ticker in sports_tickers:
+        try:
+            resp = session.get(
+                f"https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}",
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+
+            market_data = resp.json().get("market", {})
+            result = _parse_kalshi_market(ticker, market_data, now)
+
+            if result:
+                game_record, row = result
+                games[game_record["game_id"]] = game_record
+                rows.append(row)
+                fetched += 1
+
+            time.sleep(delay * 0.2)
+
+        except (requests.RequestException, ValueError):
+            pass
+
+    print(f"  Fetched {fetched} markets with prices")
+    return games, rows
+
+
+def _parse_kalshi_market(
+    ticker: str,
+    market: dict[str, Any],
+    now: str,
+) -> Optional[tuple[GameRecord, MarketRow]]:
+    """
+    Parse a Kalshi market ticker and response into game and market records.
+
+    Ticker patterns:
+        - KXNBAGAME-26FEB11ATLCHA-ATL       (h2h)
+        - KXNBASPREAD-26FEB11ATLCHA-ATL6    (spread: team -6)
+        - KXNBATOTAL-26FEB11ATLCHA-228      (total: O/U 228)
+        - KXNBAPTS-26FEB11ATLCHA-ATLCMCCOLLUM3-15  (player points: 15+)
+        - KXNBAREB-26FEB11ATLCHA-ATLPLAYER-4      (player rebounds: 4+)
+        - KXNBAAST-26FEB11ATLCHA-ATLPLAYER-4      (player assists: 4+)
+        - KXNBA3PT-26FEB11ATLCHA-ATLPLAYER-2      (player 3PT: 2+)
+
+    Args:
+        ticker: Full market ticker string.
+        market: Market data from Kalshi API.
+        now: Current timestamp.
+
+    Returns:
+        Tuple of (game_record, market_row) or None if invalid.
+    """
     # Month name to number mapping
     MONTHS = {
         "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04",
@@ -619,111 +1339,186 @@ def fetch_kalshi(session: requests.Session, config: dict[str, Any]) -> FetchResu
         "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12",
     }
 
-    # Extract game references from parlay legs
-    seen: set[tuple] = set()
-    for market in all_markets:
-        for leg in market.get("mve_selected_legs", []):
-            result = _parse_kalshi_leg(leg, market, MONTHS, seen, now)
-            if result:
-                game_record, row = result
-                games[game_record["game_id"]] = game_record
-                rows.append(row)
-
-    print(f"  Extracted {len(games)} games")
-    return games, rows
-
-
-def _parse_kalshi_leg(
-    leg: dict[str, Any],
-    market: dict[str, Any],
-    months: dict[str, str],
-    seen: set[tuple],
-    now: str,
-) -> Optional[tuple[GameRecord, MarketRow]]:
-    """
-    Parse a single Kalshi parlay leg into game and market records.
-
-    Kalshi tickers follow patterns like:
-        NBAGAME-26FEB10LALNYC-LAL
-        (NBA game on Feb 10, 2026, LA Lakers vs NYC, selection: Lakers)
-
-    Args:
-        leg: Parlay leg object from Kalshi API.
-        market: Parent market object.
-        months: Month name to number mapping.
-        seen: Set of already-processed (date, team1, team2) tuples.
-        now: Current timestamp.
-
-    Returns:
-        Tuple of (game_record, market_row) or None if invalid.
-    """
-    ticker = leg.get("market_ticker", "")
     parts = ticker.split("-")
-
     if len(parts) < 2:
         return None
 
-    # Parse ticker format: PREFIX-DDMMMYYTEAMS-SELECTION
-    match = re.match(r"(\d{2})([A-Z]{3})(\d{2})([A-Z]+)", parts[1])
-    if not match or "GAME" not in parts[0]:
+    prefix = parts[0]  # e.g., KXNBAGAME, KXNBASPREAD, KXNBAPTS
+
+    # Parse date and teams from middle part: 26FEB11ATLCHA
+    date_teams_match = re.match(r"(\d{2})([A-Z]{3})(\d{2})([A-Z]{3,6})$", parts[1])
+    if not date_teams_match:
         return None
 
-    year, month, day, teams = match.groups()
-    date = f"20{year}-{months.get(month, '01')}-{day}"
+    year_short, month_abbr, day, teams_str = date_teams_match.groups()
+    date = f"20{year_short}-{MONTHS.get(month_abbr, '01')}-{day}"
 
     # Extract team abbreviations (3 chars each)
-    team1 = teams[:3] if len(teams) >= 3 else teams
-    team2 = teams[3:6] if len(teams) >= 6 else ""
+    away_team = teams_str[:3]
+    home_team = teams_str[3:6] if len(teams_str) >= 6 else teams_str[3:]
+
+    # Determine league from prefix
+    if "NBA" in prefix:
+        league = "basketball_nba"
+    elif "NFL" in prefix:
+        league = "americanfootball_nfl"
+    elif "NHL" in prefix:
+        league = "icehockey_nhl"
+    elif "MLB" in prefix:
+        league = "baseball_mlb"
+    elif "NCAAMB" in prefix:
+        league = "basketball_ncaab"
+    else:
+        return None
+
+    game_id = f"kalshi_{date}_{away_team}_{home_team}"
+
+    # Determine market type and parse selection
+    market_type = ""
+    side = ""
+    line = 0.0
+    player = ""
+
+    # Get prices from market data (Kalshi uses cents, 0-100)
+    yes_bid = market.get("yes_bid", 0) or 0
+    yes_ask = market.get("yes_ask", 0) or 0
+    # Use midpoint as price, convert from cents to probability
+    price = ((yes_bid + yes_ask) / 2) / 100 if (yes_bid or yes_ask) else None
+
     selection = parts[2] if len(parts) > 2 else ""
 
-    # Skip duplicates
-    key = (date, team1, team2)
-    if key in seen:
-        return None
-    seen.add(key)
+    if "GAME" in prefix:
+        # h2h: KXNBAGAME-26FEB11ATLCHA-ATL
+        market_type = "h2h"
+        side = "away" if selection == away_team else "home"
 
-    # Determine league from ticker prefix
-    if "NBA" in parts[0]:
-        league = "basketball_nba"
-    elif "NFL" in parts[0]:
-        league = "americanfootball_nfl"
-    elif "NHL" in parts[0]:
-        league = "icehockey_nhl"
-    elif "MLB" in parts[0]:
-        league = "baseball_mlb"
+    elif "SPREAD" in prefix:
+        # spread: KXNBASPREAD-26FEB11ATLCHA-ATL6
+        market_type = "spreads"
+        # Parse team and spread from selection (e.g., ATL6 = ATL -6)
+        spread_match = re.match(r"([A-Z]{2,4})(\d+\.?\d*)", selection)
+        if spread_match:
+            spread_team, spread_val = spread_match.groups()
+            line = -float(spread_val)  # Kalshi shows favorite spread as positive
+            side = "away" if spread_team == away_team else "home"
+        else:
+            return None
+
+    elif "TOTAL" in prefix:
+        # total: KXNBATOTAL-26FEB11ATLCHA-228
+        market_type = "totals"
+        try:
+            line = float(selection)
+            side = "over"  # Kalshi "Yes" = over
+        except ValueError:
+            return None
+
+    elif "PTS" in prefix:
+        # player points: KXNBAPTS-26FEB11ATLCHA-ATLCMCCOLLUM3-15
+        # parts[2] = team+player+jersey, parts[3] = line
+        market_type = "player_points"
+        if len(parts) >= 4:
+            player = _parse_kalshi_player_name(parts[2])
+            try:
+                line = float(parts[3])
+            except ValueError:
+                return None
+        side = "over"
+
+    elif "REB" in prefix:
+        # player rebounds
+        market_type = "player_rebounds"
+        if len(parts) >= 4:
+            player = _parse_kalshi_player_name(parts[2])
+            try:
+                line = float(parts[3])
+            except ValueError:
+                return None
+        side = "over"
+
+    elif "AST" in prefix:
+        # player assists
+        market_type = "player_assists"
+        if len(parts) >= 4:
+            player = _parse_kalshi_player_name(parts[2])
+            try:
+                line = float(parts[3])
+            except ValueError:
+                return None
+        side = "over"
+
+    elif "3PT" in prefix:
+        # player 3-pointers
+        market_type = "player_threes"
+        if len(parts) >= 4:
+            player = _parse_kalshi_player_name(parts[2])
+            try:
+                line = float(parts[3])
+            except ValueError:
+                return None
+        side = "over"
+
     else:
-        league = "unknown"
+        return None
 
-    game_id = f"kalshi_{date}_{team1}_{team2}"
+    if not market_type:
+        return None
 
     game_record: GameRecord = {
         "game_id": game_id,
         "league": league,
         "commence_time": date,
-        "home_team": team1,
-        "away_team": team2,
+        "home_team": home_team,
+        "away_team": away_team,
         "last_refreshed": now,
     }
 
     row: MarketRow = {
         "game_id": game_id,
-        "market": "h2h",
-        "side": normalize_team(selection),
-        "line": 0.0,
+        "market": market_type,
+        "side": side,
+        "line": line,
         "source": "kalshi",
         "provider": "kalshi",
-        "price": None,  # Kalshi doesn't expose prices in parlay legs
-        "implied_prob": None,
-        "devigged_prob": None,
+        "player": player,
+        "price": price,
+        "implied_prob": price,  # Kalshi prices are probabilities
+        "devigged_prob": price,  # No vig in prediction markets
         "provider_updated_at": now,
         "last_refreshed": now,
         "snapshot_time": now,
         "source_event_id": ticker,
-        "source_market_id": market.get("ticker"),
-        "outcome": selection,
+        "source_market_id": market.get("ticker", ticker),
+        "outcome": market.get("title", selection),
     }
 
     return game_record, row
+
+
+def _parse_kalshi_player_name(player_part: str) -> str:
+    """
+    Parse player name from Kalshi ticker part.
+
+    Format: {TEAM}{PLAYERNAME}{JERSEY}
+    Examples:
+        - ATLCMCCOLLUM3 -> "cmccollum"
+        - ORLDBANE3 -> "dbane"
+        - SASVWEMBANYAMA1 -> "vwembanyama"
+
+    Args:
+        player_part: Team+player+jersey string (e.g., "ATLCMCCOLLUM3")
+
+    Returns:
+        Normalized player name string.
+    """
+    if len(player_part) <= 3:
+        return normalize_player(player_part)
+
+    # Remove team prefix (first 3 chars)
+    name_part = player_part[3:]
+    # Remove trailing digits (jersey number)
+    name_cleaned = re.sub(r"\d+$", "", name_part)
+    return normalize_player(name_cleaned)
 
 
 # =============================================================================
@@ -803,13 +1598,35 @@ def ingest(
                         api_calls += 2  # NBA + NHL futures
                         print(f"  → {len(g)} futures, {len(r)} rows")
 
+                        # Player props (if enabled)
+                        player_props_cfg = config.get("player_props", {})
+                        if player_props_cfg.get("enabled", False):
+                            print("  Player Props:")
+                            prop_rows = fetch_odds_api_player_props(
+                                session, api_key, config, all_games
+                            )
+                            all_rows.extend(prop_rows)
+                            # Estimate API calls (events + props per game)
+                            api_calls += len(all_games) * 2
+
                         update_source_metadata(conn, "odds_api", success=True, calls_made=api_calls)
 
                     elif source_name == "polymarket":
+                        # Futures (championship odds)
+                        print("  Futures:")
                         g, r = fetch_polymarket(session, config)
                         all_games.update(g)
                         all_rows.extend(r)
-                        print(f"  → {len(r)} rows")
+                        print(f"  → {len(r)} futures rows")
+
+                        # Game-by-game markets (moneyline, spreads, totals, props)
+                        # Pass existing games to cross-reference with Polymarket slugs
+                        print("  Games:")
+                        g, r = fetch_polymarket_games(session, config, all_games)
+                        all_games.update(g)
+                        all_rows.extend(r)
+                        print(f"  → {len(g)} games, {len(r)} market rows")
+
                         update_source_metadata(conn, "polymarket", success=True)
 
                     elif source_name == "kalshi":
@@ -834,7 +1651,7 @@ def ingest(
 
             rows_saved = upsert_rows(
                 conn, "market_latest",
-                ["game_id", "market", "side", "line", "source", "provider"],
+                ["game_id", "market", "side", "line", "source", "provider", "player"],
                 ["price", "implied_prob", "devigged_prob", "provider_updated_at",
                  "last_refreshed", "source_event_id", "source_market_id", "outcome"],
                 all_rows,

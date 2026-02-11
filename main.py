@@ -49,6 +49,14 @@ from arbitrage import (
     print_summary,
 )
 from ingest import ingest
+from middles import (
+    detect_all_middles,
+    detect_cross_market_middles,
+    detect_open_market_middles,
+    detect_player_prop_middles,
+    detect_sportsbook_middles,
+    print_middles,
+)
 from poll_manager import print_status, run_daemon, run_poll_cycle
 from utils import init_db, load_config
 
@@ -277,11 +285,20 @@ Arbitrage Detection:
     sportsbook  Detect sportsbook arbitrage only
     cross       Detect cross-market arbitrage only
 
+Middle Bet Detection:
+    middle          Detect all middle bet opportunities
+    middle-sb       Detect sportsbook middles only
+    middle-open     Detect open market middles only
+    middle-cross    Detect cross-market middles only
+    middle-props    Detect player prop middles only
+
 Examples:
     python main.py                  # Full pipeline
     python main.py ingest           # Just fetch new data
     python main.py detect           # Just run detection
     python main.py sportsbook       # Only sportsbook arbs
+    python main.py middle           # All middle opportunities
+    python main.py middle-props     # Player prop middles
     python main.py daemon           # Continuous monitoring
 """)
 
@@ -377,6 +394,72 @@ def main() -> int:
             for arb in arbs:
                 print_opportunity(arb, config)
             print(f"\n✅ Found {len(arbs)} cross-market opportunities")
+        finally:
+            conn.close()
+
+    # -------------------------------------------------------------------------
+    # MIDDLE BET COMMANDS
+    # -------------------------------------------------------------------------
+
+    elif command == "middle":
+        # All middle opportunities
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        try:
+            middles = detect_all_middles(conn, config)
+            print_middles(middles)
+        finally:
+            conn.close()
+
+    elif command == "middle-sb":
+        # Sportsbook middles only
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        try:
+            middles = detect_sportsbook_middles(conn, config)
+            print(f"\n{'='*70}")
+            print("SPORTSBOOK MIDDLE OPPORTUNITIES")
+            print(f"{'='*70}")
+            print_middles(middles)
+        finally:
+            conn.close()
+
+    elif command == "middle-open":
+        # Open market middles only
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        try:
+            middles = detect_open_market_middles(conn, config)
+            print(f"\n{'='*70}")
+            print("OPEN MARKET MIDDLE OPPORTUNITIES")
+            print(f"{'='*70}")
+            print_middles(middles)
+        finally:
+            conn.close()
+
+    elif command == "middle-cross":
+        # Cross-market middles only
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        try:
+            middles = detect_cross_market_middles(conn, config)
+            print(f"\n{'='*70}")
+            print("CROSS-MARKET MIDDLE OPPORTUNITIES")
+            print(f"{'='*70}")
+            print_middles(middles)
+        finally:
+            conn.close()
+
+    elif command == "middle-props":
+        # Player prop middles only
+        config = load_config()
+        conn = init_db(config["storage"]["database"])
+        try:
+            middles = detect_player_prop_middles(conn, config)
+            print(f"\n{'='*70}")
+            print("PLAYER PROP MIDDLE OPPORTUNITIES")
+            print(f"{'='*70}")
+            print_middles(middles)
         finally:
             conn.close()
 

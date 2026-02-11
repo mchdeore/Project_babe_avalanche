@@ -8,6 +8,7 @@
 --   3. Historical price time series
 --   4. Game outcomes for performance metrics
 --   5. Source metadata for intelligent polling
+--   6. Player props with player identification
 --
 -- Tables:
 --   - games: Core event information
@@ -15,6 +16,16 @@
 --   - market_history: Time series of all price snapshots
 --   - outcomes: Actual game results for backtesting
 --   - source_metadata: Polling state and quota tracking per data source
+--
+-- Market Types:
+--   - h2h: Moneyline (who wins)
+--   - spreads: Point spread betting
+--   - totals: Over/under total points
+--   - futures: Championship/season outcomes
+--   - player_points: Player points over/under
+--   - player_rebounds: Player rebounds over/under
+--   - player_assists: Player assists over/under
+--   - player_threes: Player 3-pointers over/under
 --
 -- =============================================================================
 
@@ -39,15 +50,19 @@ CREATE TABLE IF NOT EXISTS games (
 -- MARKET_LATEST TABLE
 -- -----------------------------------------------------------------------------
 -- Current/most recent prices for each unique market position.
--- Primary key ensures one row per (game, market, side, line, source, provider).
+-- Primary key ensures one row per (game, market, side, line, source, provider, player).
+--
+-- For game lines: player is NULL or empty
+-- For player props: player contains normalized player name
 
 CREATE TABLE IF NOT EXISTS market_latest (
     game_id             TEXT NOT NULL,      -- FK to games.game_id
-    market              TEXT NOT NULL,      -- Market type: h2h, spreads, totals, futures
+    market              TEXT NOT NULL,      -- Market type: h2h, spreads, totals, futures, player_*
     side                TEXT NOT NULL,      -- Position: home, away, over, under, team_name
     line                REAL NOT NULL,      -- Point line (0.0 for h2h/futures)
     source              TEXT NOT NULL,      -- Data source: odds_api, polymarket, kalshi
     provider            TEXT NOT NULL,      -- Specific book/exchange within source
+    player              TEXT DEFAULT '',    -- Player name for props (empty for game lines)
     price               REAL,               -- Raw decimal odds or probability
     implied_prob        REAL,               -- Probability before de-vigging
     devigged_prob       REAL,               -- Fair probability (vig removed)
@@ -57,7 +72,7 @@ CREATE TABLE IF NOT EXISTS market_latest (
     source_market_id    TEXT,               -- Original market ID from source API
     outcome             TEXT,               -- Raw outcome name from source
     
-    PRIMARY KEY (game_id, market, side, line, source, provider),
+    PRIMARY KEY (game_id, market, side, line, source, provider, player),
     FOREIGN KEY (game_id) REFERENCES games(game_id)
 );
 
@@ -75,6 +90,7 @@ CREATE TABLE IF NOT EXISTS market_history (
     line                REAL NOT NULL,      -- Point line
     source              TEXT NOT NULL,      -- Data source
     provider            TEXT NOT NULL,      -- Specific provider
+    player              TEXT DEFAULT '',    -- Player name for props (empty for game lines)
     price               REAL,               -- Raw price
     implied_prob        REAL,               -- Implied probability
     devigged_prob       REAL,               -- De-vigged probability
@@ -125,12 +141,13 @@ CREATE TABLE IF NOT EXISTS source_metadata (
 );
 
 -- =============================================================================
--- INDICES FOR ARBITRAGE QUERIES
+-- INDICES FOR ARBITRAGE & MIDDLE DETECTION QUERIES
 -- =============================================================================
--- These indices optimize the most common arbitrage detection queries:
+-- These indices optimize the most common queries:
 --   1. Finding matching markets across sources
 --   2. Filtering by source category (sportsbook vs open market)
 --   3. Time-based queries on history
+--   4. Player prop lookups by player name
 
 -- Primary lookup: find all prices for a specific game
 CREATE INDEX IF NOT EXISTS idx_market_latest_game 
@@ -152,6 +169,18 @@ CREATE INDEX IF NOT EXISTS idx_market_latest_provider
 CREATE INDEX IF NOT EXISTS idx_market_latest_full 
     ON market_latest(game_id, market, line, source);
 
+-- Player prop lookups: find same player across sources
+CREATE INDEX IF NOT EXISTS idx_market_latest_player 
+    ON market_latest(player, market, line);
+
+-- Player prop by game: all props for a specific game
+CREATE INDEX IF NOT EXISTS idx_market_latest_game_player 
+    ON market_latest(game_id, player);
+
+-- Middle detection: find different lines for same market type
+CREATE INDEX IF NOT EXISTS idx_market_latest_middle 
+    ON market_latest(game_id, market, source, player);
+
 -- History: game lookups
 CREATE INDEX IF NOT EXISTS idx_market_history_game 
     ON market_history(game_id);
@@ -163,3 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_market_history_snapshot
 -- History: source filtering for category analysis
 CREATE INDEX IF NOT EXISTS idx_market_history_source 
     ON market_history(source);
+
+-- History: player prop tracking over time
+CREATE INDEX IF NOT EXISTS idx_market_history_player 
+    ON market_history(player, game_id, snapshot_time);

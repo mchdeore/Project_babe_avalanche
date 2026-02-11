@@ -164,3 +164,42 @@ arbitrage:
     
     # Default fee for unknown providers
     default: 0.0
+
+# =============================================================================
+# PLAYER PROPS CONFIGURATION
+# =============================================================================
+# Player props require additional API calls (one per game).
+# Disable if you want to conserve API quota.
+
+player_props:
+  # Enable player props fetching from Odds API
+  enabled: false  # Set to true to fetch player props
+  
+  # Maximum games to fetch props for per run (API call limit)
+  max_games_per_run: 10
+  
+  # Player prop markets to fetch
+  markets:
+    - player_points
+    - player_rebounds
+    - player_assists
+    - player_threes
+
+# =============================================================================
+# MIDDLE BET DETECTION CONFIGURATION
+# =============================================================================
+# Settings for detecting middle bet opportunities.
+
+middles:
+  # Minimum gap (in points) to consider a middle opportunity
+  min_gap_points: 1.0       # Minimum spread gap
+  min_gap_total: 2.0        # Minimum total gap
+  
+  # Player props middle detection
+  player_props:
+    enabled: true
+    markets:
+      - player_points
+      - player_rebounds
+      - player_assists
+      - player_threes
