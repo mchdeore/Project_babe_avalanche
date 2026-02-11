@@ -1,4 +1,59 @@
-# Sports to ingest (Odds API sport keys)
+# =============================================================================
+# ARBITRAGE DETECTION SYSTEM - CONFIGURATION
+# =============================================================================
+#
+# This file configures:
+#   1. Per-source polling rates and API quotas
+#   2. Sports and markets to track
+#   3. Sportsbook providers to include
+#   4. Database storage settings
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DATA SOURCES - Individual polling configuration
+# -----------------------------------------------------------------------------
+# Each source has its own polling rate, quota limits, and delay settings.
+# This allows optimization based on:
+#   - API rate limits (Odds API has monthly quota)
+#   - Data freshness needs (open markets update faster)
+#   - Cost constraints (API calls may have costs)
+
+sources:
+  # Odds API: Aggregates odds from regulated US sportsbooks
+  odds_api:
+    enabled: true
+    category: sportsbook               # For arbitrage categorization
+    poll_interval_seconds: 300         # Poll every 5 minutes
+    request_delay_seconds: 0.5         # Delay between individual API calls
+    monthly_quota: 500                 # Free tier limit (adjust for your plan)
+    # Note: Each sport/market combo = 1 API call
+    # With 2 sports x 3 markets = 6 calls per poll
+    # 500 / 6 ≈ 83 polls/month ≈ 2.7 polls/day on free tier
+
+  # Polymarket: Prediction market (no hard rate limit, but be respectful)
+  polymarket:
+    enabled: true
+    category: open_market
+    poll_interval_seconds: 60          # Poll every minute
+    request_delay_seconds: 0.2         # Minimal delay needed
+    monthly_quota: null                # No monthly limit
+    # Polymarket prices ARE probabilities (no vig)
+
+  # Kalshi: US-regulated prediction market
+  kalshi:
+    enabled: true
+    category: open_market
+    poll_interval_seconds: 120         # Poll every 2 minutes
+    request_delay_seconds: 0.3         # Slightly more conservative
+    monthly_quota: null                # No monthly limit
+
+# -----------------------------------------------------------------------------
+# SPORTS TO TRACK (Odds API sport keys)
+# -----------------------------------------------------------------------------
+# Uncomment additional sports as needed.
+# More sports = more API calls per poll cycle.
+
 sports:
   - basketball_nba
   - americanfootball_nfl
@@ -14,21 +69,39 @@ sports:
   # - golf_pga
   # - mma_mixed_martial_arts
 
-# Market types
+# -----------------------------------------------------------------------------
+# MARKET TYPES
+# -----------------------------------------------------------------------------
+# h2h: Moneyline (who wins)
+# spreads: Point spread betting
+# totals: Over/under total points
+
 markets:
   - h2h
   - spreads
   - totals
-  # - alternate_spreads
+  # - alternate_spreads    # More lines = more data but higher API cost
   # - alternate_totals
-  # - outrights
+  # - outrights            # Championship futures
 
-# Regions for Odds API
+# -----------------------------------------------------------------------------
+# REGIONS (for Odds API)
+# -----------------------------------------------------------------------------
+# Determines which regional bookmakers are included.
+
 regions:
   - us
-  - ca
+  # - us2                  # Additional US books
+  # - uk
+  # - eu
+  # - au
 
-# Bookmakers to store
+# -----------------------------------------------------------------------------
+# SPORTSBOOKS TO STORE
+# -----------------------------------------------------------------------------
+# These are the regulated bookmakers from Odds API.
+# More books = better arbitrage detection but more data.
+
 books:
   - draftkings
   - fanduel
@@ -37,16 +110,35 @@ books:
   - betonlineag
   # - pointsbet
   # - caesars
-  # - sportsinteraction
-  # - betway
-  # - coolbet
+  # - williamhill_us
+  # - bovada
+  # - mybookieag
 
-# Request delay between API calls (seconds)
-request_delay_seconds: 0.1
+# -----------------------------------------------------------------------------
+# STORAGE
+# -----------------------------------------------------------------------------
 
-# Storage
 storage:
   database: odds.db
 
-# How far ahead to look for games (days)
-bettable_window_days: 30
+# -----------------------------------------------------------------------------
+# BETTING WINDOW
+# -----------------------------------------------------------------------------
+# Only fetch games within this many days from now.
+# Larger window = more games but potentially stale futures.
+
+bettable_window_days: 14
+
+# -----------------------------------------------------------------------------
+# ARBITRAGE DETECTION SETTINGS
+# -----------------------------------------------------------------------------
+
+arbitrage:
+  # Minimum edge (%) to report as an opportunity
+  min_edge_percent: 0.5
+  
+  # Maximum staleness (seconds) - ignore data older than this
+  max_data_age_seconds: 600
+  
+  # Bankroll for stake calculations
+  reference_bankroll: 100
