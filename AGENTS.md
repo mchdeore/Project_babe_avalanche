@@ -3,6 +3,9 @@
 **Purpose**
 Provide project-specific guidance for agents working on this repo so changes stay consistent with the system’s architecture and workflow.
 
+**Repository Guidelines**
+See `CONTRIBUTING.md` for repo-wide contribution standards and workflow expectations.
+
 **Project Summary**
 Python-based sports betting arbitrage/middle detection pipeline that ingests odds from multiple sources and stores them in a SQLite database for analysis and detection.
 
