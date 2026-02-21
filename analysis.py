@@ -49,7 +49,7 @@ from utils import utc_now_iso
 
 # Source category definitions (for reference and filtering)
 SPORTSBOOK_SOURCES: set[str] = {"odds_api"}
-OPEN_MARKET_SOURCES: set[str] = {"polymarket", "kalshi"}
+OPEN_MARKET_SOURCES: set[str] = {"polymarket", "kalshi", "stx"}
 
 
 # =============================================================================

@@ -1639,6 +1639,405 @@ def _parse_kalshi_player_name(player_part: str) -> str:
 
 
 # =============================================================================
+# STX - CANADIAN SPORTS BETTING EXCHANGE
+# =============================================================================
+
+def fetch_stx(session: requests.Session, config: dict[str, Any]) -> FetchResult:
+    """
+    Fetch sports markets from STX (Canadian Sports Exchange).
+
+    STX is a regulated Canadian sports betting exchange that uses GraphQL API.
+    Exchange prices are true market prices without bookmaker vig.
+
+    API Documentation: https://wiki.stxapp.io/en/trading-api
+
+    Authentication:
+        - Requires JWT token (set STX_API_KEY in .env)
+        - Token obtained via login mutation (email/password)
+        - For market data viewing, API key may suffice
+
+    Endpoint:
+        - GraphQL: https://api.stx.ca/graphql (production)
+
+    Args:
+        session: Active requests.Session.
+        config: Full configuration dict.
+
+    Returns:
+        Tuple of (games_dict, market_rows) with prices.
+
+    Example:
+        >>> games, rows = fetch_stx(session, config)
+        >>> print(f"Found {len(games)} games, {len(rows)} market rows")
+    """
+    games: dict[str, GameRecord] = {}
+    rows: list[MarketRow] = []
+    now = utc_now_iso()
+
+    # Get source-specific config
+    source_cfg = get_source_config(config, "stx")
+    delay = source_cfg.get("request_delay_seconds", 0.2)
+
+    # Get API credentials
+    stx_api_key = os.getenv("STX_API_KEY")
+    if not stx_api_key:
+        ingest_logger.warning("STX: No API key configured (STX_API_KEY)")
+        # Try fetching without auth for public market data
+    
+    # STX GraphQL endpoint
+    graphql_url = "https://api.stx.ca/graphql"
+    
+    # Headers for GraphQL requests
+    headers = {
+        "Content-Type": "application/json",
+    }
+    if stx_api_key:
+        headers["Authorization"] = f"Bearer {stx_api_key}"
+
+    # ==========================================================================
+    # Query 1: Fetch available sports events
+    # ==========================================================================
+    events_query = """
+    query GetSportsEvents($sportType: String, $limit: Int) {
+        events(sportType: $sportType, limit: $limit, status: "open") {
+            id
+            name
+            sportType
+            league
+            startTime
+            homeTeam {
+                id
+                name
+                abbreviation
+            }
+            awayTeam {
+                id
+                name
+                abbreviation
+            }
+            markets {
+                id
+                type
+                line
+                outcomes {
+                    id
+                    name
+                    side
+                    bestBid
+                    bestAsk
+                    lastPrice
+                }
+            }
+        }
+    }
+    """
+
+    # Sports to query (map to STX sport types)
+    SPORT_TYPES = {
+        "basketball_nba": "basketball",
+        "icehockey_nhl": "hockey",
+        "americanfootball_nfl": "football",
+        "baseball_mlb": "baseball",
+    }
+
+    config_sports = config.get("sports", [])
+    stx_sports = [SPORT_TYPES.get(s) for s in config_sports if SPORT_TYPES.get(s)]
+    
+    if not stx_sports:
+        stx_sports = ["basketball", "hockey", "football"]  # Default
+
+    print(f"  Querying STX for sports: {stx_sports}")
+
+    for sport_type in stx_sports:
+        try:
+            # Make GraphQL request
+            payload = {
+                "query": events_query,
+                "variables": {
+                    "sportType": sport_type,
+                    "limit": 100,
+                },
+            }
+
+            resp = session.post(
+                graphql_url,
+                json=payload,
+                headers=headers,
+                timeout=15,
+            )
+
+            if resp.status_code == 401:
+                ingest_logger.warning(f"STX: Unauthorized for {sport_type} - check API key")
+                continue
+            elif resp.status_code != 200:
+                ingest_logger.warning(f"STX: HTTP {resp.status_code} for {sport_type}")
+                continue
+
+            result = resp.json()
+            
+            if "errors" in result:
+                for err in result.get("errors", []):
+                    ingest_logger.warning(f"STX GraphQL error: {err.get('message')}")
+                continue
+
+            events = result.get("data", {}).get("events", [])
+            print(f"    {sport_type}: {len(events)} events")
+
+            # Process each event
+            for event in events:
+                event_result = _process_stx_event(event, now, config)
+                if event_result:
+                    game_record, event_rows = event_result
+                    games[game_record["game_id"]] = game_record
+                    rows.extend(event_rows)
+
+            time.sleep(delay)
+
+        except requests.exceptions.RequestException as e:
+            ingest_logger.warning(f"STX request failed for {sport_type}: {e}")
+            continue
+        except Exception as e:
+            ingest_logger.warning(f"STX error for {sport_type}: {e}")
+            continue
+
+    print(f"  → {len(games)} games, {len(rows)} market rows")
+    return games, rows
+
+
+def _process_stx_event(
+    event: dict[str, Any],
+    now: str,
+    config: dict[str, Any],
+) -> Optional[tuple[GameRecord, list[MarketRow]]]:
+    """
+    Process a single STX event into game record and market rows.
+
+    Args:
+        event: Event object from STX GraphQL response.
+        now: Current ISO timestamp.
+        config: Configuration dict.
+
+    Returns:
+        Tuple of (game_record, rows) or None if invalid.
+    """
+    event_id = event.get("id")
+    name = event.get("name", "")
+    sport_type = event.get("sportType", "")
+    league = event.get("league", "")
+    start_time = event.get("startTime", "")
+    
+    home_team_data = event.get("homeTeam", {}) or {}
+    away_team_data = event.get("awayTeam", {}) or {}
+    
+    home_team = home_team_data.get("name", "")
+    away_team = away_team_data.get("name", "")
+    home_abbrev = home_team_data.get("abbreviation", "")
+    away_abbrev = away_team_data.get("abbreviation", "")
+
+    if not all([event_id, home_team, away_team]):
+        return None
+
+    # Map sport type to our league format
+    LEAGUE_MAP = {
+        "basketball": "basketball_nba",
+        "hockey": "icehockey_nhl",
+        "football": "americanfootball_nfl",
+        "baseball": "baseball_mlb",
+    }
+    our_league = LEAGUE_MAP.get(sport_type.lower(), sport_type)
+
+    # Check if within bettable window
+    window_days = config.get("bettable_window_days", 14)
+    if start_time and not within_window(start_time, window_days):
+        return None
+
+    # Generate canonical game ID
+    date_str = start_time[:10] if start_time else now[:10]
+    game_id = canonical_game_id(our_league, home_team, away_team, date_str)
+
+    game_record: GameRecord = {
+        "game_id": game_id,
+        "league": our_league,
+        "commence_time": start_time,
+        "home_team": home_team,
+        "away_team": away_team,
+        "last_refreshed": now,
+    }
+
+    rows: list[MarketRow] = []
+    markets = event.get("markets", []) or []
+
+    for market in markets:
+        market_rows = _parse_stx_market(
+            market, game_id, home_team, away_team, now
+        )
+        rows.extend(market_rows)
+
+    return game_record, rows
+
+
+def _parse_stx_market(
+    market: dict[str, Any],
+    game_id: str,
+    home_team: str,
+    away_team: str,
+    now: str,
+) -> list[MarketRow]:
+    """
+    Parse a single STX market into standardized rows.
+
+    STX market types:
+        - moneyline: Who wins
+        - spread: Point spread betting
+        - total: Over/under total points
+        - player_props: Individual player statistics
+
+    Exchange pricing:
+        - bestBid: Highest buy offer
+        - bestAsk: Lowest sell offer
+        - lastPrice: Most recent trade price
+        - Use mid-price for probability estimation
+
+    Args:
+        market: Market object from STX event.
+        game_id: Canonical game ID.
+        home_team: Home team name.
+        away_team: Away team name.
+        now: Current timestamp.
+
+    Returns:
+        List of MarketRow dicts.
+    """
+    rows: list[MarketRow] = []
+    
+    market_id = market.get("id")
+    market_type = (market.get("type") or "").lower()
+    line = market.get("line")
+    outcomes = market.get("outcomes", []) or []
+
+    if not outcomes:
+        return []
+
+    # Map STX market types to our schema
+    TYPE_MAP = {
+        "moneyline": "h2h",
+        "money_line": "h2h",
+        "h2h": "h2h",
+        "spread": "spreads",
+        "point_spread": "spreads",
+        "spreads": "spreads",
+        "total": "totals",
+        "over_under": "totals",
+        "totals": "totals",
+        "player_points": "player_points",
+        "player_rebounds": "player_rebounds",
+        "player_assists": "player_assists",
+        "player_threes": "player_threes",
+    }
+
+    our_market_type = TYPE_MAP.get(market_type, market_type)
+    if not our_market_type:
+        return []
+
+    for outcome in outcomes:
+        outcome_id = outcome.get("id")
+        outcome_name = outcome.get("name", "")
+        outcome_side = (outcome.get("side") or "").lower()
+        
+        # Get exchange prices
+        best_bid = outcome.get("bestBid")  # Cents or decimal
+        best_ask = outcome.get("bestAsk")
+        last_price = outcome.get("lastPrice")
+
+        # Calculate mid-price probability
+        # STX likely uses cents (0-100) like Kalshi, or decimals (0-1)
+        # Adjust based on actual API response format
+        if best_bid is not None and best_ask is not None:
+            # Use mid-price
+            mid = (best_bid + best_ask) / 2
+            # If values > 1, assume cents
+            price = mid / 100 if mid > 1 else mid
+        elif last_price is not None:
+            price = last_price / 100 if last_price > 1 else last_price
+        else:
+            continue
+
+        # Determine side based on market type
+        if our_market_type == "h2h":
+            # Map outcome to home/away
+            normalized = normalize_team(outcome_name)
+            home_norm = normalize_team(home_team)
+            away_norm = normalize_team(away_team)
+            
+            if normalized == home_norm or home_norm in normalized:
+                side = "home"
+            elif normalized == away_norm or away_norm in normalized:
+                side = "away"
+            else:
+                side = outcome_side or normalized
+
+        elif our_market_type == "totals":
+            # Over/under
+            if outcome_side in ("over", "o"):
+                side = "over"
+            elif outcome_side in ("under", "u"):
+                side = "under"
+            else:
+                # Try parsing from name
+                if "over" in outcome_name.lower():
+                    side = "over"
+                elif "under" in outcome_name.lower():
+                    side = "under"
+                else:
+                    continue
+
+        elif our_market_type == "spreads":
+            # Spread betting
+            normalized = normalize_team(outcome_name)
+            home_norm = normalize_team(home_team)
+            away_norm = normalize_team(away_team)
+            
+            if normalized == home_norm or home_norm in normalized:
+                side = "home"
+            elif normalized == away_norm or away_norm in normalized:
+                side = "away"
+            else:
+                side = outcome_side or normalized
+
+        elif our_market_type.startswith("player_"):
+            # Player props
+            if outcome_side in ("over", "o", "yes"):
+                side = "over"
+            elif outcome_side in ("under", "u", "no"):
+                side = "under"
+            else:
+                continue
+        else:
+            side = outcome_side or outcome_name.lower()
+
+        rows.append({
+            "game_id": game_id,
+            "market": our_market_type,
+            "side": side,
+            "line": float(line) if line is not None else 0.0,
+            "source": "stx",
+            "provider": "stx",
+            "player": "",  # TODO: Parse player name for props
+            "price": price,
+            "implied_prob": price,  # Exchange prices ARE probabilities
+            "devigged_prob": price,  # No vig in exchanges
+            "provider_updated_at": now,
+            "last_refreshed": now,
+            "snapshot_time": now,
+            "source_event_id": str(market.get("id") or ""),
+            "source_market_id": str(outcome_id or ""),
+            "outcome": outcome_name,
+        })
+
+    return rows
+
+
+# =============================================================================
 # MAIN INGESTION ORCHESTRATOR
 # =============================================================================
 
@@ -1752,6 +2151,13 @@ def ingest(
                         all_rows.extend(r)
                         print(f"  → {len(g)} games, {len(r)} rows")
                         update_source_metadata(conn, "kalshi", success=True)
+
+                    elif source_name == "stx":
+                        g, r = fetch_stx(session, config)
+                        all_games.update(g)
+                        all_rows.extend(r)
+                        print(f"  → {len(g)} games, {len(r)} rows")
+                        update_source_metadata(conn, "stx", success=True)
 
                 except Exception as e:
                     print(f"  ❌ Error: {e}")

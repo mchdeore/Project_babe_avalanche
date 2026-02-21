@@ -350,6 +350,189 @@ def _parse_kalshi_market(ticker, market, now):
     return game_record, row
 
 
+# =============================================================================
+# STX - CANADIAN SPORTS EXCHANGE (GraphQL API)
+# =============================================================================
+
+def fetch_stx(session, config):
+    """Fetch sports markets from STX (Canadian Sports Exchange) via GraphQL."""
+    games, rows, now = {}, [], utc_now_iso()
+    delay = get_source_config(config, "stx").get("request_delay_seconds", 0.2)
+    
+    stx_api_key = os.getenv("STX_API_KEY")
+    graphql_url = "https://api.stx.ca/graphql"
+    
+    headers = {"Content-Type": "application/json"}
+    if stx_api_key:
+        headers["Authorization"] = f"Bearer {stx_api_key}"
+    
+    # GraphQL query for sports events
+    events_query = """
+    query GetSportsEvents($sportType: String, $limit: Int) {
+        events(sportType: $sportType, limit: $limit, status: "open") {
+            id
+            name
+            sportType
+            league
+            startTime
+            homeTeam { id name abbreviation }
+            awayTeam { id name abbreviation }
+            markets {
+                id
+                type
+                line
+                outcomes {
+                    id
+                    name
+                    side
+                    bestBid
+                    bestAsk
+                    lastPrice
+                }
+            }
+        }
+    }
+    """
+    
+    SPORT_TYPES = {"basketball_nba": "basketball", "icehockey_nhl": "hockey", 
+                  "americanfootball_nfl": "football", "baseball_mlb": "baseball"}
+    
+    config_sports = config.get("sports", [])
+    stx_sports = [SPORT_TYPES.get(s) for s in config_sports if SPORT_TYPES.get(s)]
+    if not stx_sports:
+        stx_sports = ["basketball", "hockey", "football"]
+    
+    logger.info(f"  STX: querying sports {stx_sports}")
+    
+    for sport_type in stx_sports:
+        try:
+            payload = {"query": events_query, "variables": {"sportType": sport_type, "limit": 100}}
+            resp = session.post(graphql_url, json=payload, headers=headers, timeout=15)
+            
+            if resp.status_code == 401:
+                logger.warning(f"STX: Unauthorized for {sport_type}")
+                continue
+            elif resp.status_code != 200:
+                logger.warning(f"STX: HTTP {resp.status_code} for {sport_type}")
+                continue
+            
+            result = resp.json()
+            if "errors" in result:
+                logger.warning(f"STX GraphQL errors: {result.get('errors')}")
+                continue
+            
+            events = result.get("data", {}).get("events", [])
+            logger.info(f"    {sport_type}: {len(events)} events")
+            
+            for event in events:
+                event_result = _parse_stx_event(event, now, config)
+                if event_result:
+                    game_record, event_rows = event_result
+                    games[game_record["game_id"]] = game_record
+                    rows.extend(event_rows)
+            
+            time.sleep(delay)
+            
+        except Exception as e:
+            logger.warning(f"STX error for {sport_type}: {e}")
+            continue
+    
+    logger.info(f"  STX: {len(games)} games, {len(rows)} markets")
+    return games, rows
+
+
+def _parse_stx_event(event, now, config):
+    """Parse STX event into game record and market rows."""
+    event_id = event.get("id")
+    sport_type = event.get("sportType", "")
+    start_time = event.get("startTime", "")
+    
+    home_team_data = event.get("homeTeam", {}) or {}
+    away_team_data = event.get("awayTeam", {}) or {}
+    home_team = home_team_data.get("name", "")
+    away_team = away_team_data.get("name", "")
+    
+    if not all([event_id, home_team, away_team]):
+        return None
+    
+    LEAGUE_MAP = {"basketball": "basketball_nba", "hockey": "icehockey_nhl",
+                  "football": "americanfootball_nfl", "baseball": "baseball_mlb"}
+    our_league = LEAGUE_MAP.get(sport_type.lower(), sport_type)
+    
+    date_str = start_time[:10] if start_time else now[:10]
+    game_id = f"stx_{date_str}_{normalize_team(away_team)}_{normalize_team(home_team)}"
+    
+    game_record = {"game_id": game_id, "league": our_league, "commence_time": start_time,
+                  "home_team": home_team, "away_team": away_team, "last_refreshed": now}
+    
+    rows = []
+    for market in event.get("markets", []) or []:
+        rows.extend(_parse_stx_market(market, game_id, home_team, away_team, now))
+    
+    return game_record, rows
+
+
+def _parse_stx_market(market, game_id, home_team, away_team, now):
+    """Parse STX market into standardized rows."""
+    rows = []
+    market_type = (market.get("type") or "").lower()
+    line = market.get("line")
+    outcomes = market.get("outcomes", []) or []
+    
+    if not outcomes:
+        return []
+    
+    TYPE_MAP = {"moneyline": "h2h", "money_line": "h2h", "h2h": "h2h",
+                "spread": "spreads", "point_spread": "spreads", "spreads": "spreads",
+                "total": "totals", "over_under": "totals", "totals": "totals"}
+    our_market_type = TYPE_MAP.get(market_type, market_type)
+    if not our_market_type:
+        return []
+    
+    for outcome in outcomes:
+        outcome_name = outcome.get("name", "")
+        outcome_side = (outcome.get("side") or "").lower()
+        
+        best_bid = outcome.get("bestBid")
+        best_ask = outcome.get("bestAsk")
+        last_price = outcome.get("lastPrice")
+        
+        if best_bid is not None and best_ask is not None:
+            mid = (best_bid + best_ask) / 2
+            price = mid / 100 if mid > 1 else mid
+        elif last_price is not None:
+            price = last_price / 100 if last_price > 1 else last_price
+        else:
+            continue
+        
+        if our_market_type == "h2h" or our_market_type == "spreads":
+            outcome_norm = normalize_team(outcome_name)
+            home_norm = normalize_team(home_team)
+            away_norm = normalize_team(away_team)
+            if outcome_norm == home_norm or home_norm in outcome_norm:
+                side = "home"
+            elif outcome_norm == away_norm or away_norm in outcome_norm:
+                side = "away"
+            else:
+                side = outcome_side or outcome_norm
+        elif our_market_type == "totals":
+            if outcome_side in ("over", "o") or "over" in outcome_name.lower():
+                side = "over"
+            elif outcome_side in ("under", "u") or "under" in outcome_name.lower():
+                side = "under"
+            else:
+                continue
+        else:
+            side = outcome_side or outcome_name.lower()
+        
+        rows.append({"game_id": game_id, "market": our_market_type, "side": side,
+                    "line": float(line) if line else 0.0, "source": "stx", "provider": "stx",
+                    "player": "", "price": price, "implied_prob": price, "devigged_prob": price,
+                    "provider_updated_at": now, "last_refreshed": now, "snapshot_time": now})
+    
+    return rows
+
+
 def run_once(existing_games=None):
     load_dotenv()
     config = load_config()
@@ -381,6 +564,12 @@ def run_once(existing_games=None):
             kalshi_games, kalshi_rows = fetch_kalshi(session, config)
             all_games.update(kalshi_games)
             all_rows.extend(kalshi_rows)
+        
+        if get_source_config(config, "stx").get("enabled", True):
+            logger.info("Fetching STX...")
+            stx_games, stx_rows = fetch_stx(session, config)
+            all_games.update(stx_games)
+            all_rows.extend(stx_rows)
     
     if all_games:
         for g in all_games.values():
@@ -397,6 +586,7 @@ def run_once(existing_games=None):
     
     update_source_metadata(conn, "polymarket", 0)
     update_source_metadata(conn, "kalshi", 0)
+    update_source_metadata(conn, "stx", 0)
     conn.close()
     
     logger.info(f"COMPLETE: {len(all_games)} games, {len(all_rows)} rows")

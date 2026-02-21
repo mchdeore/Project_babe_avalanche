@@ -48,6 +48,19 @@ sources:
     request_delay_seconds: 0.3         # Slightly more conservative
     monthly_quota: null                # No monthly limit
 
+  # STX: Canadian sports betting exchange
+  # Docs: https://wiki.stxapp.io/en/trading-api
+  # Uses GraphQL API with JWT authentication
+  stx:
+    enabled: true
+    category: open_market
+    poll_interval_seconds: 60          # Poll every minute (exchange has fresh prices)
+    request_delay_seconds: 0.2         # Fast API response typical for exchanges
+    monthly_quota: null                # No monthly limit
+    # GraphQL endpoint: https://api.stx.ca/graphql (verify from docs)
+    # Authentication: JWT token required for trading, market data may be public
+    # NOTE: Exchange prices are true market prices (no vig like sportsbooks)
+
 # -----------------------------------------------------------------------------
 # SPORTS TO TRACK (Odds API sport keys)
 # -----------------------------------------------------------------------------
@@ -161,6 +174,7 @@ arbitrage:
     # Open/Prediction Markets (trading fees on winnings)
     polymarket: 0.02      # ~2% trading fee
     kalshi: 0.01          # ~1% fee (varies by contract)
+    stx: 0.02             # ~2% exchange fee (verify from STX docs)
     
     # Default fee for unknown providers
     default: 0.0

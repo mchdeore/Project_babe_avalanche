@@ -5,13 +5,13 @@ A modular sports betting arbitrage and middle bet detection platform that compar
 ## Features
 
 - **Arbitrage Detection (Risk-Free Profit)**
-  - Open Market: Polymarket vs Kalshi
+  - Open Market: Polymarket vs Kalshi vs STX (Canadian Sports Exchange)
   - Sportsbook: Between regulated bookmakers (DraftKings, FanDuel, BetMGM, etc.)
   - Cross-Market: Sportsbooks vs prediction markets
 
 - **Middle Bet Detection (Conditional Profit)**
   - Sportsbook Middles: Different spread/total lines between bookmakers
-  - Open Market Middles: Different lines between Polymarket/Kalshi
+  - Open Market Middles: Different lines between Polymarket/Kalshi/STX
   - Cross-Market Middles: Sportsbooks vs prediction markets
   - Player Prop Middles: Same player, different O/U lines across sources
 
@@ -89,7 +89,7 @@ python analysis.py               # Run analysis report
 | File | Purpose |
 |------|---------|
 | `main.py` | CLI entry point with multiple commands |
-| `ingest.py` | Data fetching from Odds API, Polymarket, Kalshi |
+| `ingest.py` | Data fetching from Odds API, Polymarket, Kalshi, STX |
 | `arbitrage.py` | Three arbitrage detection algorithms |
 | `middles.py` | Four middle bet detection algorithms |
 | `poll_manager.py` | Per-source polling scheduler with quota tracking |
@@ -116,6 +116,10 @@ sources:
   kalshi:
     enabled: true
     poll_interval_seconds: 120    # 2 minutes
+    
+  stx:
+    enabled: true
+    poll_interval_seconds: 60     # 1 minute (Canadian exchange)
 
 sports:
   - basketball_nba
@@ -189,8 +193,9 @@ Leg 2: away @ fanduel
 | Source | Type | Data |
 |--------|------|------|
 | Odds API | Sportsbook | Game odds from DraftKings, FanDuel, BetMGM, etc. |
-| Polymarket | Open Market | Prediction market prices (futures) |
+| Polymarket | Open Market | Prediction market prices (futures + game lines) |
 | Kalshi | Open Market | US-regulated prediction exchange |
+| STX | Open Market | Canadian regulated sports betting exchange (GraphQL API) |
 
 ## Cron Setup (Optional)
 
@@ -254,7 +259,10 @@ for s in spreads[:5]:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ODDS_API_KEY` | Yes | API key from [the-odds-api.com](https://the-odds-api.com) |
+| `ODDS_API_KEY` | Yes* | API key from [the-odds-api.com](https://the-odds-api.com) |
+| `STX_API_KEY` | No | JWT token for STX Canadian Sports Exchange ([wiki.stxapp.io](https://wiki.stxapp.io/en/trading-api)) |
+
+*At least one data source API key is required. Polymarket and Kalshi don't require API keys for market data.
 
 ## Requirements
 

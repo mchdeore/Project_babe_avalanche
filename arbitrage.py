@@ -65,7 +65,7 @@ from utils import (
 
 # Source category definitions
 SPORTSBOOK_SOURCES: set[str] = {"odds_api"}
-OPEN_MARKET_SOURCES: set[str] = {"polymarket", "kalshi"}
+OPEN_MARKET_SOURCES: set[str] = {"polymarket", "kalshi", "stx"}
 
 # Default minimum edge to report (as decimal, e.g., 0.005 = 0.5%)
 DEFAULT_MIN_EDGE: float = 0.005
@@ -80,6 +80,7 @@ DEFAULT_BANKROLL: float = 100.0
 DEFAULT_FEES: dict[str, float] = {
     "polymarket": 0.02,   # 2% trading fee
     "kalshi": 0.01,       # ~1% fee
+    "stx": 0.02,          # ~2% exchange fee (Canadian Sports Exchange)
     "default": 0.0,       # Sportsbooks have no explicit fee (vig removed)
 }
 

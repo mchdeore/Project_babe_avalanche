@@ -59,7 +59,7 @@ MiddleOpportunity = dict[str, Any]
 
 # Source categories for filtering
 SPORTSBOOK_SOURCES = {"odds_api"}
-OPEN_MARKET_SOURCES = {"polymarket", "kalshi"}
+OPEN_MARKET_SOURCES = {"polymarket", "kalshi", "stx"}
 
 
 # =============================================================================
