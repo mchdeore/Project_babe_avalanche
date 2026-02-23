@@ -31,8 +31,7 @@ Python-based sports betting arbitrage/middle detection pipeline that ingests odd
 - `utils.py`: DB init, upserts, history inserts, helper utilities
 - `sources/`: Source ingestion logic
 - `services/`: One-shot workers per source + detection
-- `services/detect_opportunities.py`: Arbitrage detection algorithms + detector entrypoint
-- `middles.py`: Middle detection algorithms
+- `services/detect_opportunities.py`: Arbitrage + middle detection algorithms and detector entrypoint
 - `config.yaml`: Source/market configuration
 
 **Database Notes**
