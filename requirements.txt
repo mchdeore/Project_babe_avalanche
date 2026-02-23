@@ -2,3 +2,5 @@ pyyaml>=6.0
 python-dotenv>=1.0
 requests>=2.28
 urllib3<2
+py-clob-client
+kalshi-python

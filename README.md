@@ -30,7 +30,7 @@ python services/detect_opportunities.py
 | `python services/ingest_stx.py` | Ingest STX |
 | `python services/detect_opportunities.py` | Detect arbitrage + middles |
 
-Manual trading helpers live in `payment_methods/stx_trading.py` (callable from your own scripts).
+Manual trading helpers live in `payment_methods/` (callable from your own scripts).
 
 ## Environment Variables
 
@@ -42,8 +42,20 @@ Manual trading helpers live in `payment_methods/stx_trading.py` (callable from y
 | `STX_DEVICE_ID` | No | Device identifier for STX login (defaults to a generated UUID) |
 | `STX_GRAPHQL_URL` | No | Override STX GraphQL URL (default: `https://api.stx.ca/graphql`) |
 | `STX_GEO_CODE` | No | GeoLocationCode for order confirmation |
+| `POLY_HOST` | No | Polymarket CLOB host (default: `https://clob.polymarket.com`) |
+| `POLY_CHAIN_ID` | No | Polymarket chain ID (default: `137`) |
+| `POLY_PRIVATE_KEY` | No | Polymarket L1 wallet private key |
+| `POLY_API_KEY` | No | Polymarket L2 API key |
+| `POLY_API_SECRET` | No | Polymarket L2 API secret |
+| `POLY_API_PASSPHRASE` | No | Polymarket L2 API passphrase |
+| `POLY_FUNDER` | No | Polymarket funder address (optional) |
+| `POLY_SIGNATURE_TYPE` | No | Polymarket signature type (default: `0`) |
+| `KALSHI_API_KEY_ID` | No | Kalshi API key ID |
+| `KALSHI_PRIVATE_KEY_PEM` | No | Kalshi private key PEM (inline) |
+| `KALSHI_PRIVATE_KEY_PATH` | No | Kalshi private key PEM file path |
+| `KALSHI_BASE_URL` | No | Kalshi base URL (default: `https://api.elections.kalshi.com/trade-api/v2`) |
 
-*At least one data source credential is required. Polymarket and Kalshi do not require API keys.
+*At least one data source credential is required for ingestion. Trading requires provider-specific credentials.
 
 ## Data Sources
 
