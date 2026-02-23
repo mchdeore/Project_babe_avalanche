@@ -63,3 +63,58 @@ player_props:
     - player_rebounds
     - player_assists
     - player_threes
+
+# =============================================================================
+# INSIGHTS GENERATOR CONFIGURATION
+# =============================================================================
+# Data analysis and pattern detection module.
+# All features run on-demand via CLI - no automation/daemon mode.
+#
+# Usage:
+#   python -m insights_generator.cli scrape       # Fetch news headlines
+#   python -m insights_generator.cli analyze      # Process with Ollama NLP
+#   python -m insights_generator.cli detect-lag   # Find lead/lag signals
+#   python -m insights_generator.cli train        # Train ML model
+#   python -m insights_generator.cli predict      # Run predictions
+#   python -m insights_generator.cli status       # Show summary
+
+insights_generator:
+  enabled: true
+  
+  # Database (uses same database as main system, adds its own tables)
+  database: odds.db
+  
+  # News scraping (run: cli.py scrape)
+  news:
+    sources:
+      - name: espn_nba
+        url: "https://www.espn.com/espn/rss/nba/news"
+        type: rss
+      - name: espn_nfl
+        url: "https://www.espn.com/espn/rss/nfl/news"
+        type: rss
+  
+  # Ollama NLP settings (run: cli.py analyze)
+  nlp:
+    ollama_model: "llama3.2"
+    ollama_host: "http://localhost:11434"
+    batch_size: 10
+  
+  # Lead/lag detection (run: cli.py detect-lag)
+  lag_detection:
+    lookback_minutes: 30
+    min_probability_delta: 0.02
+    min_lag_seconds: 5
+    max_lag_seconds: 300
+  
+  # ML pipeline (run: cli.py train / predict)
+  ml:
+    min_training_samples: 1000
+    model_path: "insights_generator/trained_model.pkl"
+    features:
+      - price_velocity
+      - volatility
+      - provider_spread
+      - time_to_game
+      - injury_severity
+      - news_count
