@@ -1,9 +1,9 @@
-"""Source fetch modules for ingestion workers."""
+"""Adapter modules for ingestion workers."""
 
 __all__ = [
-    "common",
-    "odds_api",
-    "polymarket",
-    "kalshi",
-    "stx",
+    "adapter_common",
+    "adapter_odds_api",
+    "adapter_polymarket",
+    "adapter_kalshi",
+    "adapter_stx",
 ]
