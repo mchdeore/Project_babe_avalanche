@@ -30,6 +30,8 @@ python services/detect_opportunities.py
 | `python services/ingest_stx.py` | Ingest STX |
 | `python services/detect_opportunities.py` | Detect arbitrage + middles |
 
+Manual trading helpers live in `payment_methods/stx_trading.py` (callable from your own scripts).
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -39,6 +41,7 @@ python services/detect_opportunities.py
 | `STX_PASSWORD` | No | STX account password (required if STX is enabled) |
 | `STX_DEVICE_ID` | No | Device identifier for STX login (defaults to a generated UUID) |
 | `STX_GRAPHQL_URL` | No | Override STX GraphQL URL (default: `https://api.stx.ca/graphql`) |
+| `STX_GEO_CODE` | No | GeoLocationCode for order confirmation |
 
 *At least one data source credential is required. Polymarket and Kalshi do not require API keys.
 

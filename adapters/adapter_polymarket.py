@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import requests
 
-from sources.adapter_common import api_request
+from adapters.adapter_common import api_request
 from utils import get_source_config, normalize_player, normalize_team, safe_json, utc_now_iso
 
 GameRecord = dict[str, Any]

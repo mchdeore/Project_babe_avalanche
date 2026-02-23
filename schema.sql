@@ -102,6 +102,70 @@ CREATE TABLE IF NOT EXISTS market_history (
 );
 
 -- -----------------------------------------------------------------------------
+-- ORDERS TABLE
+-- -----------------------------------------------------------------------------
+-- Tracks trading orders across sources/providers.
+
+CREATE TABLE IF NOT EXISTS orders (
+    order_id        TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    provider        TEXT NOT NULL,
+    market_id       TEXT,
+    side            TEXT,
+    price           REAL,
+    quantity        REAL,
+    total_value     REAL,
+    avg_price       REAL,
+    filled_percentage REAL,
+    status          TEXT,
+    client_order_id TEXT,
+    created_at      TEXT,
+    inserted_at     TEXT,
+    updated_at      TEXT,
+    raw_json        TEXT,
+
+    PRIMARY KEY (source, order_id)
+);
+
+-- -----------------------------------------------------------------------------
+-- POSITIONS TABLE
+-- -----------------------------------------------------------------------------
+-- Tracks current holdings/positions per market and side.
+
+CREATE TABLE IF NOT EXISTS positions (
+    source          TEXT NOT NULL,
+    provider        TEXT NOT NULL,
+    market_id       TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    quantity        REAL,
+    avg_price       REAL,
+    cost_basis      REAL,
+    current_price   REAL,
+    unrealized_pnl  REAL,
+    updated_at      TEXT,
+    raw_json        TEXT,
+
+    PRIMARY KEY (source, market_id, side)
+);
+
+-- -----------------------------------------------------------------------------
+-- BALANCES TABLE
+-- -----------------------------------------------------------------------------
+-- Tracks cash balances per source and currency.
+
+CREATE TABLE IF NOT EXISTS balances (
+    source          TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    total           REAL,
+    available       REAL,
+    pending         REAL,
+    updated_at      TEXT,
+    raw_json        TEXT,
+
+    PRIMARY KEY (source, currency)
+);
+
+-- -----------------------------------------------------------------------------
 -- OUTCOMES TABLE
 -- -----------------------------------------------------------------------------
 -- Actual game results for performance metric calculation.
@@ -176,3 +240,19 @@ CREATE INDEX IF NOT EXISTS idx_market_history_source
 -- History: player prop tracking over time
 CREATE INDEX IF NOT EXISTS idx_market_history_player 
     ON market_history(player, game_id, snapshot_time);
+
+-- Orders: source/status lookup
+CREATE INDEX IF NOT EXISTS idx_orders_source_status
+    ON orders(source, status);
+
+-- Orders: market lookup
+CREATE INDEX IF NOT EXISTS idx_orders_market
+    ON orders(market_id);
+
+-- Positions: source lookup
+CREATE INDEX IF NOT EXISTS idx_positions_source
+    ON positions(source);
+
+-- Balances: source lookup
+CREATE INDEX IF NOT EXISTS idx_balances_source
+    ON balances(source);

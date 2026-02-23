@@ -8,6 +8,7 @@ Python-based sports betting arbitrage/middle detection pipeline that ingests odd
 
 **Repository Layout**
 - `services/` one-shot workers per source + detection
+- `payment_methods/` transaction and funding logic
 - `sources/` ingestion adapter logic
 - `services/detect_opportunities.py` arbitrage + middle detection algorithms and detector entrypoint
 - `utils.py` shared helpers, DB utilities, normalization

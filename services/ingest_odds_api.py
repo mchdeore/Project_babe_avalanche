@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from sources import adapter_odds_api as odds_api
-from sources.adapter_common import apply_devig, save_to_db
+from adapters import adapter_odds_api as odds_api
+from adapters.adapter_common import apply_devig, save_to_db
 from utils import init_db, load_config
 
 

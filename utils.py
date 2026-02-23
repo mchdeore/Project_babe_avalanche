@@ -470,6 +470,114 @@ def insert_history(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> 
     return len(rows)
 
 
+def upsert_orders(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> int:
+    """
+    Insert or update order records in the orders table.
+
+    Args:
+        conn: Active database connection.
+        rows: Iterable of order dictionaries.
+
+    Returns:
+        Number of rows processed.
+
+    Example:
+        >>> conn = init_db()
+        >>> rows = [{'source': 'stx', 'order_id': 'o1', 'status': 'open'}]
+        >>> upsert_orders(conn, rows)
+        1
+    """
+    return upsert_rows(
+        conn,
+        "orders",
+        ["source", "order_id"],
+        [
+            "provider",
+            "market_id",
+            "side",
+            "price",
+            "quantity",
+            "total_value",
+            "avg_price",
+            "filled_percentage",
+            "status",
+            "client_order_id",
+            "created_at",
+            "inserted_at",
+            "updated_at",
+            "raw_json",
+        ],
+        rows,
+    )
+
+
+def upsert_positions(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> int:
+    """
+    Insert or update position records in the positions table.
+
+    Args:
+        conn: Active database connection.
+        rows: Iterable of position dictionaries.
+
+    Returns:
+        Number of rows processed.
+
+    Example:
+        >>> conn = init_db()
+        >>> rows = [{'source': 'stx', 'market_id': 'm1', 'side': 'yes'}]
+        >>> upsert_positions(conn, rows)
+        1
+    """
+    return upsert_rows(
+        conn,
+        "positions",
+        ["source", "market_id", "side"],
+        [
+            "provider",
+            "quantity",
+            "avg_price",
+            "cost_basis",
+            "current_price",
+            "unrealized_pnl",
+            "updated_at",
+            "raw_json",
+        ],
+        rows,
+    )
+
+
+def upsert_balances(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> int:
+    """
+    Insert or update balance records in the balances table.
+
+    Args:
+        conn: Active database connection.
+        rows: Iterable of balance dictionaries.
+
+    Returns:
+        Number of rows processed.
+
+    Example:
+        >>> conn = init_db()
+        >>> rows = [{'source': 'stx', 'currency': 'USD', 'total': 100.0}]
+        >>> upsert_balances(conn, rows)
+        1
+    """
+    return upsert_rows(
+        conn,
+        "balances",
+        ["source", "currency"],
+        [
+            "total",
+            "available",
+            "pending",
+            "updated_at",
+            "raw_json",
+        ],
+        rows,
+    )
+
+
 # =============================================================================
 # PROBABILITY FUNCTIONS
 # =============================================================================
