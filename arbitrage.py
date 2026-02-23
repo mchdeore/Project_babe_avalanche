@@ -1,48 +1,4 @@
-"""
-Arbitrage Detection Module
-==========================
-
-Three specialized arbitrage detection algorithms for different market types.
-
-This module provides:
-    1. Open Market Arbitrage - Between prediction markets (Polymarket vs Kalshi)
-    2. Sportsbook Arbitrage - Between regulated bookmakers (DraftKings vs FanDuel, etc.)
-    3. Cross-Market Arbitrage - Between sportsbooks and open markets
-
-Arbitrage Concept:
-    Arbitrage exists when you can bet on all outcomes of an event across
-    different sources such that the sum of probabilities < 1 (or sum of
-    1/odds < 1). This guarantees profit regardless of outcome.
-
-    Example:
-        - Source A: Team wins at 45% implied probability
-        - Source B: Team loses at 48% implied probability
-        - Sum: 93% < 100% = 7% guaranteed profit margin
-
-Usage:
-    from arbitrage import (
-        detect_open_market_arbitrage,
-        detect_sportsbook_arbitrage,
-        detect_cross_market_arbitrage,
-    )
-
-    conn = sqlite3.connect('odds.db')
-
-    # Detect opportunities in each market category
-    open_arbs = detect_open_market_arbitrage(conn)
-    book_arbs = detect_sportsbook_arbitrage(conn)
-    cross_arbs = detect_cross_market_arbitrage(conn)
-
-    # Print all opportunities
-    for arb in open_arbs:
-        print(f"OPEN MARKET ARB: {arb['game_id']} - {arb['margin']:.2%} edge")
-
-Dependencies:
-    - sqlite3: Database queries
-    - utils: Helper functions for calculations
-
-Author: Arbitrage Detection System
-"""
+"""Arbitrage detection helpers."""
 from __future__ import annotations
 
 import sqlite3

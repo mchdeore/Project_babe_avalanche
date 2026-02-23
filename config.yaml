@@ -1,119 +1,32 @@
-# =============================================================================
-# ARBITRAGE DETECTION SYSTEM - CONFIGURATION
-# =============================================================================
-#
-# This file configures:
-#   1. Per-source polling rates and API quotas
-#   2. Sports and markets to track
-#   3. Sportsbook providers to include
-#   4. Database storage settings
-#
-# =============================================================================
-
-# -----------------------------------------------------------------------------
-# DATA SOURCES - Individual polling configuration
-# -----------------------------------------------------------------------------
-# Each source has its own polling rate, quota limits, and delay settings.
-# This allows optimization based on:
-#   - API rate limits (Odds API has monthly quota)
-#   - Data freshness needs (open markets update faster)
-#   - Cost constraints (API calls may have costs)
-
 sources:
-  # Odds API: Aggregates odds from regulated US sportsbooks
-  odds_api:  # DISABLED - Quota exhausted
+  odds_api:
     enabled: false
-    category: sportsbook               # For arbitrage categorization
-    poll_interval_seconds: 300         # Poll every 5 minutes
-    request_delay_seconds: 0.5         # Delay between individual API calls
-    monthly_quota: 500                 # Free tier limit (adjust for your plan)
-    # Note: Each sport/market combo = 1 API call
-    # With 2 sports x 3 markets = 6 calls per poll
-    # 500 / 6 ≈ 83 polls/month ≈ 2.7 polls/day on free tier
-
-  # Polymarket: Prediction market (no hard rate limit, but be respectful)
+    category: sportsbook
+    request_delay_seconds: 0.5
   polymarket:
     enabled: true
     category: open_market
-    poll_interval_seconds: 60          # Poll every minute
-    request_delay_seconds: 0.2         # Minimal delay needed
-    monthly_quota: null                # No monthly limit
-    # Polymarket prices ARE probabilities (no vig)
-
-  # Kalshi: US-regulated prediction market
+    request_delay_seconds: 0.2
   kalshi:
     enabled: true
     category: open_market
-    poll_interval_seconds: 120         # Poll every 2 minutes
-    request_delay_seconds: 0.3         # Slightly more conservative
-    monthly_quota: null                # No monthly limit
-
-  # STX: Canadian sports betting exchange
-  # Docs: https://wiki.stxapp.io/en/trading-api
-  # Uses GraphQL API with JWT authentication
+    request_delay_seconds: 0.3
   stx:
     enabled: true
     category: open_market
-    poll_interval_seconds: 60          # Poll every minute (exchange has fresh prices)
-    request_delay_seconds: 0.2         # Fast API response typical for exchanges
-    monthly_quota: null                # No monthly limit
-    # GraphQL endpoint: https://api.stx.ca/graphql (verify from docs)
-    # Authentication: JWT token required for trading, market data may be public
-    # NOTE: Exchange prices are true market prices (no vig like sportsbooks)
-
-# -----------------------------------------------------------------------------
-# SPORTS TO TRACK (Odds API sport keys)
-# -----------------------------------------------------------------------------
-# Uncomment additional sports as needed.
-# More sports = more API calls per poll cycle.
+    request_delay_seconds: 0.2
 
 sports:
   - basketball_nba
   - americanfootball_nfl
-  # - basketball_ncaab
-  # - americanfootball_ncaaf
-  # - icehockey_nhl
-  # - baseball_mlb
-  # - soccer_epl
-  # - soccer_uefa_champs_league
-  # - soccer_usa_mls
-  # - tennis_atp
-  # - tennis_wta
-  # - golf_pga
-  # - mma_mixed_martial_arts
-
-# -----------------------------------------------------------------------------
-# MARKET TYPES
-# -----------------------------------------------------------------------------
-# h2h: Moneyline (who wins)
-# spreads: Point spread betting
-# totals: Over/under total points
 
 markets:
   - h2h
   - spreads
   - totals
-  # - alternate_spreads    # More lines = more data but higher API cost
-  # - alternate_totals
-  # - outrights            # Championship futures
-
-# -----------------------------------------------------------------------------
-# REGIONS (for Odds API)
-# -----------------------------------------------------------------------------
-# Determines which regional bookmakers are included.
 
 regions:
   - us
-  # - us2                  # Additional US books
-  # - uk
-  # - eu
-  # - au
-
-# -----------------------------------------------------------------------------
-# SPORTSBOOKS TO STORE
-# -----------------------------------------------------------------------------
-# These are the regulated bookmakers from Odds API.
-# More books = better arbitrage detection but more data.
 
 books:
   - draftkings
@@ -121,99 +34,32 @@ books:
   - betmgm
   - betrivers
   - betonlineag
-  # - pointsbet
-  # - caesars
-  # - williamhill_us
-  # - bovada
-  # - mybookieag
-
-# -----------------------------------------------------------------------------
-# STORAGE
-# -----------------------------------------------------------------------------
 
 storage:
   database: odds.db
 
-# -----------------------------------------------------------------------------
-# BETTING WINDOW
-# -----------------------------------------------------------------------------
-# Only fetch games within this many days from now.
-# Larger window = more games but potentially stale futures.
-
 bettable_window_days: 14
 
-# -----------------------------------------------------------------------------
-# ARBITRAGE DETECTION SETTINGS
-# -----------------------------------------------------------------------------
-
 arbitrage:
-  # Minimum edge (%) to report as an opportunity
   min_edge_percent: 0.5
-  
-  # Maximum staleness (seconds) - ignore data older than this
   max_data_age_seconds: 600
-  
-  # Bankroll for stake calculations
   reference_bankroll: 100
-  
-  # -----------------------------------------------------------------------------
-  # PLATFORM FEES (as decimal, e.g., 0.02 = 2%)
-  # -----------------------------------------------------------------------------
-  # These fees are subtracted from gross profit to show net profit.
-  # Sportsbooks: vig is already removed via de-vigging, no additional fee.
-  # Open markets: trading fees apply on winning bets.
-  
   fees:
-    # Sportsbooks (vig already removed, no explicit trading fee)
     draftkings: 0.0
     fanduel: 0.0
     betmgm: 0.0
     betrivers: 0.0
     betonlineag: 0.0
-    
-    # Open/Prediction Markets (trading fees on winnings)
-    polymarket: 0.02      # ~2% trading fee
-    kalshi: 0.01          # ~1% fee (varies by contract)
-    stx: 0.02             # ~2% exchange fee (verify from STX docs)
-    
-    # Default fee for unknown providers
+    polymarket: 0.02
+    kalshi: 0.01
+    stx: 0.02
     default: 0.0
 
-# =============================================================================
-# PLAYER PROPS CONFIGURATION
-# =============================================================================
-# Player props require additional API calls (one per game).
-# Disable if you want to conserve API quota.
-
 player_props:
-  # Enable player props fetching from Odds API
-  enabled: false  # Set to true to fetch player props
-  
-  # Maximum games to fetch props for per run (API call limit)
+  enabled: false
   max_games_per_run: 10
-  
-  # Player prop markets to fetch
   markets:
     - player_points
     - player_rebounds
     - player_assists
     - player_threes
-
-# =============================================================================
-# MIDDLE BET DETECTION CONFIGURATION
-# =============================================================================
-# Settings for detecting middle bet opportunities.
-
-middles:
-  # Minimum gap (in points) to consider a middle opportunity
-  min_gap_points: 1.0       # Minimum spread gap
-  min_gap_total: 2.0        # Minimum total gap
-  
-  # Player props middle detection
-  player_props:
-    enabled: false
-    markets:
-      - player_points
-      - player_rebounds
-      - player_assists
-      - player_threes

@@ -7,15 +7,13 @@
 --   2. Current market prices (latest snapshot)
 --   3. Historical price time series
 --   4. Game outcomes for performance metrics
---   5. Source metadata for intelligent polling
---   6. Player props with player identification
+--   5. Player props with player identification
 --
 -- Tables:
 --   - games: Core event information
 --   - market_latest: Most recent prices per market/source/provider
 --   - market_history: Time series of all price snapshots
 --   - outcomes: Actual game results for backtesting
---   - source_metadata: Polling state and quota tracking per data source
 --
 -- Market Types:
 --   - h2h: Moneyline (who wins)
@@ -120,24 +118,6 @@ CREATE TABLE IF NOT EXISTS outcomes (
     updated_at          TEXT,               -- When this outcome was recorded
     
     FOREIGN KEY (game_id) REFERENCES games(game_id)
-);
-
--- -----------------------------------------------------------------------------
--- SOURCE_METADATA TABLE
--- -----------------------------------------------------------------------------
--- Tracks polling state and quota usage for each data source.
--- Enables intelligent scheduling and rate limit compliance.
-
-CREATE TABLE IF NOT EXISTS source_metadata (
-    source_name         TEXT PRIMARY KEY,   -- Source identifier: odds_api, polymarket, kalshi
-    last_poll_time      TEXT,               -- ISO timestamp of last successful poll
-    last_poll_success   BOOLEAN DEFAULT 1,  -- Did last poll succeed?
-    last_error          TEXT,               -- Error message if last poll failed
-    calls_this_month    INTEGER DEFAULT 0,  -- API calls used this billing period
-    quota_reset_date    TEXT,               -- When monthly quota resets
-    total_calls_ever    INTEGER DEFAULT 0,  -- Lifetime call count
-    created_at          TEXT,               -- When this source was first tracked
-    updated_at          TEXT                -- Last modification time
 );
 
 -- =============================================================================

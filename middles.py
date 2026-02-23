@@ -1,35 +1,4 @@
-"""
-Middle Bet Detection Module
-============================
-
-Detects middle bet opportunities across different market sources.
-
-A "middle" occurs when you can bet both sides of a spread or total
-at different lines, creating a window where both bets can win.
-
-Example:
-    - Bet Team A -3.5 on DraftKings
-    - Bet Team B +5.5 on FanDuel
-    - If Team A wins by 4 or 5 points, BOTH bets win
-
-This module provides detection for:
-    1. Sportsbook middles (between bookmakers)
-    2. Open market middles (between Polymarket/Kalshi)
-    3. Cross-market middles (sportsbooks vs open markets)
-    4. Player prop middles (same player, different lines)
-
-Usage:
-    from middles import detect_all_middles
-    
-    conn = init_db("odds.db")
-    opportunities = detect_all_middles(conn)
-    for opp in opportunities:
-        print(f"{opp['type']}: {opp['description']}")
-
-Dependencies:
-    - SQLite database with market_latest table
-    - utils.py for helper functions
-"""
+"""Middle bet detection helpers."""
 from __future__ import annotations
 
 import sqlite3

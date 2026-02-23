@@ -1,67 +1,15 @@
-"""
-Shared Utilities Module
-=======================
-
-Core utility functions used across the arbitrage detection system.
-
-This module provides:
-    - Configuration loading and validation
-    - Database initialization and operations (upsert, insert, queries)
-    - Time and date utilities (ISO formatting, window checking)
-    - String normalization (team names, game IDs)
-    - Probability functions (odds conversion, de-vigging)
-
-Usage:
-    from utils import (
-        load_config, init_db, upsert_rows,
-        canonical_game_id, normalize_team,
-        odds_to_prob, devig, devig_market
-    )
-
-Dependencies:
-    - yaml: Configuration file parsing
-    - sqlite3: Database operations
-    - json: JSON string parsing
-
-Author: Arbitrage Detection System
-"""
+"""Shared utilities for config, DB, normalization, and math helpers."""
 from __future__ import annotations
 
-import functools
 import json
-import logging
 import os
 import re
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable, Optional, TypeVar
+from typing import Any, Iterable, Optional
 
 import yaml
-
-
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-
-# Configure module logger
-logger = logging.getLogger(__name__)
-
-def setup_logging(
-    level: int = logging.INFO,
-    format_str: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-) -> None:
-    """
-    Configure logging for the application.
-
-    Args:
-        level: Logging level (default: INFO).
-        format_str: Log message format string.
-
-    Example:
-        >>> setup_logging(logging.DEBUG)
-    """
-    logging.basicConfig(level=level, format=format_str)
 
 
 # =============================================================================
@@ -80,130 +28,6 @@ DEFAULT_DB_PATH: str = "odds.db"
 # API request defaults
 DEFAULT_TIMEOUT: int = 30  # seconds
 DEFAULT_RETRIES: int = 3
-DEFAULT_RETRY_DELAY: float = 1.0  # seconds
-
-
-# =============================================================================
-# RETRY DECORATOR
-# =============================================================================
-
-T = TypeVar("T")
-
-
-def retry_on_failure(
-    max_retries: int = DEFAULT_RETRIES,
-    delay: float = DEFAULT_RETRY_DELAY,
-    backoff: float = 2.0,
-    exceptions: tuple = (Exception,),
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator that retries a function on failure with exponential backoff.
-
-    Useful for API calls that may fail due to transient network issues.
-
-    Args:
-        max_retries: Maximum number of retry attempts.
-        delay: Initial delay between retries (seconds).
-        backoff: Multiplier for delay after each retry.
-        exceptions: Tuple of exception types to catch and retry.
-
-    Returns:
-        Decorated function that retries on failure.
-
-    Example:
-        >>> @retry_on_failure(max_retries=3, delay=1.0)
-        ... def fetch_data():
-        ...     return requests.get(url)
-    """
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            last_exception = None
-            current_delay = delay
-
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        logger.warning(
-                            f"{func.__name__} failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                            f"Retrying in {current_delay:.1f}s..."
-                        )
-                        time.sleep(current_delay)
-                        current_delay *= backoff
-                    else:
-                        logger.error(
-                            f"{func.__name__} failed after {max_retries + 1} attempts: {e}"
-                        )
-
-            raise last_exception  # type: ignore
-
-        return wrapper
-    return decorator
-
-
-def safe_request(
-    method: str,
-    url: str,
-    session: Any = None,
-    timeout: int = DEFAULT_TIMEOUT,
-    retries: int = DEFAULT_RETRIES,
-    **kwargs: Any,
-) -> Optional[dict]:
-    """
-    Make an HTTP request with automatic retry and error handling.
-
-    Args:
-        method: HTTP method ('get', 'post', etc.).
-        url: Request URL.
-        session: Optional requests.Session for connection pooling.
-        timeout: Request timeout in seconds.
-        retries: Number of retry attempts.
-        **kwargs: Additional arguments passed to requests.
-
-    Returns:
-        JSON response as dict, or None if request failed.
-
-    Example:
-        >>> data = safe_request('get', 'https://api.example.com/data')
-        >>> if data:
-        ...     print(data['results'])
-    """
-    import requests
-
-    requester = session or requests
-    last_error = None
-
-    for attempt in range(retries + 1):
-        try:
-            response = getattr(requester, method.lower())(
-                url, timeout=timeout, **kwargs
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.Timeout as e:
-            last_error = e
-            logger.warning(f"Request timeout (attempt {attempt + 1}): {url}")
-        except requests.exceptions.ConnectionError as e:
-            last_error = e
-            logger.warning(f"Connection error (attempt {attempt + 1}): {url}")
-        except requests.exceptions.HTTPError as e:
-            last_error = e
-            logger.warning(f"HTTP error {e.response.status_code} (attempt {attempt + 1}): {url}")
-            if e.response.status_code in (401, 403, 404):
-                # Don't retry auth/not-found errors
-                break
-        except (requests.exceptions.RequestException, ValueError) as e:
-            last_error = e
-            logger.warning(f"Request failed (attempt {attempt + 1}): {e}")
-
-        if attempt < retries:
-            time.sleep(DEFAULT_RETRY_DELAY * (2 ** attempt))
-
-    logger.error(f"Request failed after {retries + 1} attempts: {url} - {last_error}")
-    return None
 
 
 # =============================================================================
@@ -228,8 +52,8 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
 
     Example:
         >>> config = load_config()
-        >>> config['sources']['odds_api']['poll_interval_seconds']
-        300
+        >>> config['sources']['odds_api']['enabled']
+        False
         >>> config['sports']
         ['basketball_nba', 'americanfootball_nfl']
     """
@@ -251,8 +75,8 @@ def get_source_config(config: dict[str, Any], source_name: str) -> dict[str, Any
     Example:
         >>> config = load_config()
         >>> odds_cfg = get_source_config(config, 'odds_api')
-        >>> odds_cfg['poll_interval_seconds']
-        300
+        >>> odds_cfg['enabled']
+        False
     """
     return config.get("sources", {}).get(source_name, {})
 
@@ -646,79 +470,6 @@ def insert_history(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> 
     return len(rows)
 
 
-def update_source_metadata(
-    conn: sqlite3.Connection,
-    source_name: str,
-    success: bool = True,
-    error: Optional[str] = None,
-    calls_made: int = 0,
-) -> None:
-    """
-    Update polling metadata for a data source.
-
-    Records the result of a polling operation including:
-        - Last poll timestamp
-        - Success/failure status
-        - Error message (if failed)
-        - API calls consumed
-
-    Args:
-        conn: Active database connection.
-        source_name: Name of the source (e.g., 'odds_api').
-        success: Whether the poll succeeded.
-        error: Error message if poll failed.
-        calls_made: Number of API calls made in this poll.
-
-    Example:
-        >>> conn = init_db()
-        >>> update_source_metadata(conn, 'odds_api', success=True, calls_made=6)
-    """
-    now = utc_now_iso()
-
-    conn.execute("""
-        INSERT INTO source_metadata (
-            source_name, last_poll_time, last_poll_success, last_error,
-            calls_this_month, total_calls_ever, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(source_name) DO UPDATE SET
-            last_poll_time = excluded.last_poll_time,
-            last_poll_success = excluded.last_poll_success,
-            last_error = excluded.last_error,
-            calls_this_month = calls_this_month + ?,
-            total_calls_ever = total_calls_ever + ?,
-            updated_at = excluded.updated_at
-    """, [source_name, now, success, error, calls_made, calls_made, now, now,
-          calls_made, calls_made])
-
-
-def get_source_metadata(conn: sqlite3.Connection, source_name: str) -> Optional[dict[str, Any]]:
-    """
-    Get current polling metadata for a source.
-
-    Args:
-        conn: Active database connection.
-        source_name: Name of the source to query.
-
-    Returns:
-        Dictionary with source metadata, or None if not found.
-
-    Example:
-        >>> conn = init_db()
-        >>> meta = get_source_metadata(conn, 'odds_api')
-        >>> meta['calls_this_month'] if meta else 0
-        0
-    """
-    cursor = conn.execute(
-        "SELECT * FROM source_metadata WHERE source_name = ?",
-        [source_name]
-    )
-    row = cursor.fetchone()
-    if row:
-        cols = [d[0] for d in cursor.description]
-        return dict(zip(cols, row))
-    return None
-
-
 # =============================================================================
 # PROBABILITY FUNCTIONS
 # =============================================================================
@@ -802,52 +553,6 @@ def devig(probs: list[Optional[float]]) -> list[Optional[float]]:
     if total > 0:
         return [p / total if p else None for p in probs]
     return probs
-
-
-def devig_market(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Apply de-vigging to a group of market outcome rows.
-
-    Handles different sources appropriately:
-        - Polymarket/Kalshi: Prices ARE fair probabilities (no vig)
-        - Sportsbooks: Apply multiplicative de-vigging
-
-    Modifies rows in-place by adding 'devigged_prob' field.
-
-    Args:
-        rows: List of market row dictionaries from same market/book.
-              Each must have 'source' and 'implied_prob' keys.
-
-    Returns:
-        Same list with 'devigged_prob' added to each row.
-
-    Example:
-        >>> rows = [
-        ...     {'source': 'odds_api', 'implied_prob': 0.55},
-        ...     {'source': 'odds_api', 'implied_prob': 0.55}
-        ... ]
-        >>> result = devig_market(rows)
-        >>> result[0]['devigged_prob']
-        0.5
-    """
-    if not rows:
-        return []
-
-    # Open markets have no vig - price IS the probability
-    source = rows[0].get("source", "")
-    if source in ("polymarket", "kalshi"):
-        for row in rows:
-            row["devigged_prob"] = row.get("implied_prob")
-        return rows
-
-    # Sportsbooks: apply de-vigging
-    probs = [row.get("implied_prob", 0) for row in rows]
-    devigged = devig(probs)
-
-    for row, dv in zip(rows, devigged):
-        row["devigged_prob"] = dv
-
-    return rows
 
 
 def calculate_arb_margin(prob_a: float, prob_b: float) -> float:
