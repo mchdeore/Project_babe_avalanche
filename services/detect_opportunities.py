@@ -1,11 +1,17 @@
-"""One-shot detection for arbitrage and middles.
+"""Opportunity detection service for arbitrage and middles.
 
-Includes arbitrage and middle detection logic (formerly in arbitrage.py and middles.py).
+Supports both one-shot and daemon modes:
+    python services/detect_opportunities.py           # Run once
+    python services/detect_opportunities.py --daemon  # Run continuously
+    python services/detect_opportunities.py --daemon --interval 30
 """
 from __future__ import annotations
 
+import argparse
 import sqlite3
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,6 +30,7 @@ from utils import (
     utc_now_iso,
 )
 
+DEFAULT_INTERVAL = 30  # seconds
 # =============================================================================
 # CONSTANTS
 # =============================================================================
@@ -1293,6 +1300,7 @@ def print_middles(opportunities: list[MiddleOpportunity], limit: int = 20) -> No
     if len(opportunities) > limit:
         print(f"\n... and {len(opportunities) - limit} more opportunities")
 
+
 MAX_RESULTS = 10
 
 
@@ -1313,7 +1321,16 @@ def _format_middle(mid: dict) -> str:
     )
 
 
-def run() -> None:
+# =============================================================================
+# RUN FUNCTIONS
+# =============================================================================
+
+def run_once() -> dict[str, Any]:
+    """Run a single detection cycle.
+    
+    Returns:
+        Dict with counts of arbitrage and middle opportunities found.
+    """
     config = load_config()
     conn = init_db(config["storage"]["database"])
 
@@ -1329,25 +1346,93 @@ def run() -> None:
 
     all_arbs.sort(key=lambda x: x.get("margin", 0), reverse=True)
 
-    print(
-        "arbitrage: total={} open={} sportsbook={} cross={} props={}".format(
-            len(all_arbs),
-            len(arbs.get("open_market", [])),
-            len(arbs.get("sportsbook", [])),
-            len(arbs.get("cross_market", [])),
-            len(arbs.get("player_prop", [])),
-        )
-    )
-    for arb in all_arbs[:MAX_RESULTS]:
-        print(f"- {_format_arb(arb)}")
-
     middles = detect_all_middles(conn, config)
-    print(f"middles: total={len(middles)}")
-    for mid in middles[:MAX_RESULTS]:
-        print(f"- {_format_middle(mid)}")
 
     conn.close()
 
+    return {
+        "arb_total": len(all_arbs),
+        "arb_open": len(arbs.get("open_market", [])),
+        "arb_sportsbook": len(arbs.get("sportsbook", [])),
+        "arb_cross": len(arbs.get("cross_market", [])),
+        "arb_props": len(arbs.get("player_prop", [])),
+        "middles_total": len(middles),
+        "top_arbs": all_arbs[:MAX_RESULTS],
+        "top_middles": middles[:MAX_RESULTS],
+    }
+
+
+def run_daemon(interval: int = DEFAULT_INTERVAL) -> None:
+    """Run detection continuously at specified interval.
+    
+    Args:
+        interval: Seconds between detection cycles
+    """
+    print(f"[detector] Starting daemon mode (interval={interval}s)")
+    
+    while True:
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            result = run_once()
+            
+            print(
+                f"[{timestamp}] detector: arb={result['arb_total']} "
+                f"(open={result['arb_open']} sb={result['arb_sportsbook']} "
+                f"cross={result['arb_cross']} props={result['arb_props']}) "
+                f"middles={result['middles_total']}"
+            )
+            
+            for arb in result["top_arbs"][:3]:
+                print(f"  ARB: {_format_arb(arb)}")
+            
+            for mid in result["top_middles"][:3]:
+                print(f"  MID: {_format_middle(mid)}")
+                
+        except KeyboardInterrupt:
+            print("\n[detector] Shutting down...")
+            break
+        except Exception as e:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{timestamp}] detector ERROR: {e}")
+        
+        time.sleep(interval)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Opportunity detection service")
+    parser.add_argument(
+        "--daemon", 
+        action="store_true", 
+        help="Run continuously instead of once"
+    )
+    parser.add_argument(
+        "--interval", 
+        type=int, 
+        default=DEFAULT_INTERVAL,
+        help=f"Seconds between detection cycles in daemon mode (default: {DEFAULT_INTERVAL})"
+    )
+    args = parser.parse_args()
+
+    if args.daemon:
+        run_daemon(args.interval)
+    else:
+        result = run_once()
+        print(
+            "arbitrage: total={} open={} sportsbook={} cross={} props={}".format(
+                result["arb_total"],
+                result["arb_open"],
+                result["arb_sportsbook"],
+                result["arb_cross"],
+                result["arb_props"],
+            )
+        )
+        for arb in result["top_arbs"]:
+            print(f"- {_format_arb(arb)}")
+
+        print(f"middles: total={result['middles_total']}")
+        for mid in result["top_middles"]:
+            print(f"- {_format_middle(mid)}")
+
 
 if __name__ == "__main__":
-    run()
+    main()
