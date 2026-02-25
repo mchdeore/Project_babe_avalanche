@@ -1,0 +1,6 @@
+# Optional player alias overrides
+# Format:
+# Canonical Player Name:
+#   - Alias One
+#   - Alias Two
+{}

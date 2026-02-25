@@ -199,6 +199,10 @@ cython_debug/
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
+
+# Insights generator cache
+insights_generator/cache/
+.cursorignore
 .cursorindexingignore
 
 # Marimo

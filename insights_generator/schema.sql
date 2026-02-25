@@ -193,6 +193,44 @@ CREATE INDEX IF NOT EXISTS idx_lag_signals_strength
 
 
 -- -----------------------------------------------------------------------------
+-- EVENT_MARKET_IMPACTS TABLE
+-- -----------------------------------------------------------------------------
+-- Stores how markets moved around a structured event (injury, weather, etc).
+
+CREATE TABLE IF NOT EXISTS event_market_impacts (
+    event_id            INTEGER NOT NULL,      -- FK to structured_events.id
+    game_id             TEXT NOT NULL,         -- FK to games.game_id
+    market              TEXT NOT NULL,         -- h2h, spreads, totals, etc
+    side                TEXT NOT NULL,         -- home, away, over, under
+    line                REAL NOT NULL,         -- Line value
+    provider            TEXT NOT NULL,         -- Canonical provider name
+
+    baseline_prob       REAL,                  -- Probability before event
+    baseline_time       TEXT,                  -- Snapshot time for baseline
+    max_prob            REAL,                  -- Max prob after event
+    min_prob            REAL,                  -- Min prob after event
+    impact_prob         REAL,                  -- Most extreme prob after event
+    impact_delta        REAL,                  -- impact_prob - baseline_prob
+    impact_direction    TEXT,                  -- up/down/stable
+    impact_time         TEXT,                  -- When impact_prob occurred
+    snapshot_count      INTEGER,               -- # snapshots in post window
+
+    computed_at         TEXT NOT NULL,         -- When computed
+    config_json         TEXT,                  -- JSON of config settings
+
+    PRIMARY KEY (event_id, provider, market, side, line),
+    FOREIGN KEY (event_id) REFERENCES structured_events(id),
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_impacts_game
+    ON event_market_impacts(game_id, market);
+
+CREATE INDEX IF NOT EXISTS idx_event_impacts_event
+    ON event_market_impacts(event_id);
+
+
+-- -----------------------------------------------------------------------------
 -- ML_PREDICTIONS TABLE
 -- -----------------------------------------------------------------------------
 -- Model prediction outputs for line movement forecasting.

@@ -1,0 +1,50 @@
+# Canonical provider names mapped to known aliases
+# Normalize to lowercase alphanumeric before matching
+
+draftkings:
+  - dk
+  - draft kings
+  - draftkings sportsbook
+fanduel:
+  - fd
+  - fan duel
+  - fanduel sportsbook
+betmgm:
+  - mgm
+  - bet mgm
+  - betmgm sportsbook
+betrivers:
+  - br
+  - bet rivers
+  - betriver
+betonlineag:
+  - betonline
+  - bet online
+  - betonline.ag
+circa:
+  - circa sportsbook
+pointsbet:
+  - points bet
+caesars:
+  - caesars sportsbook
+williamhill:
+  - william hill
+  - williamhillus
+barstool:
+  - barstool sportsbook
+pinnacle:
+  - pinnacle sportsbook
+unibet:
+  - uni bet
+  - unibet sportsbook
+polymarket:
+  - poly
+  - polymarket exchange
+kalshi:
+  - kalshi exchange
+stx:
+  - stx exchange
+  - stx sports
+odds_api:
+  - oddsapi
+  - odds api

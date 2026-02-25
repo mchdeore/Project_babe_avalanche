@@ -33,6 +33,8 @@ from typing import Any
 
 import requests
 
+from aliases import canonical_player, canonical_team
+
 from insights_generator.scrapers.news_scraper import get_unprocessed_headlines, mark_processed
 
 
@@ -186,6 +188,14 @@ def extract_structured_features(
     # Validate required fields
     if "event_type" not in extracted:
         extracted["event_type"] = "other"
+
+    # Canonicalize entities
+    if extracted.get("team"):
+        extracted["team"] = canonical_team(str(extracted.get("team")))
+    if extracted.get("opponent_team"):
+        extracted["opponent_team"] = canonical_team(str(extracted.get("opponent_team")))
+    if extracted.get("player"):
+        extracted["player"] = canonical_player(str(extracted.get("player")))
     
     return extracted
 

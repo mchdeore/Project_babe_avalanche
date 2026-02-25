@@ -8,6 +8,7 @@ import time
 
 import requests
 
+from aliases import canonical_market, canonical_provider
 from utils import DEFAULT_RETRIES, DEFAULT_TIMEOUT, devig, insert_history, upsert_rows
 
 NO_VIG_SOURCES = {"polymarket", "kalshi", "stx"}
@@ -80,6 +81,21 @@ def apply_devig(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         devigged = devig(probs)
         for row, dv in zip(group, devigged):
             row["devigged_prob"] = dv
+
+    return rows
+
+
+def apply_canonicalization(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not rows:
+        return rows
+
+    for row in rows:
+        provider = row.get("provider")
+        market = row.get("market")
+        if provider:
+            row["provider"] = canonical_provider(str(provider))
+        if market:
+            row["market"] = canonical_market(str(market))
 
     return rows
 

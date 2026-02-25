@@ -44,6 +44,44 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "url": "https://www.espn.com/espn/rss/nfl/news",
                 "type": "rss",
             },
+            {
+                "name": "espn_nhl",
+                "url": "https://www.espn.com/espn/rss/nhl/news",
+                "type": "rss",
+            },
+            {
+                "name": "espn_mlb",
+                "url": "https://www.espn.com/espn/rss/mlb/news",
+                "type": "rss",
+            },
+            {
+                "name": "reddit_sportsbook",
+                "type": "api",
+                "api_type": "reddit",
+                "subreddit": "sportsbook",
+                "limit": 100,
+            },
+            {
+                "name": "weather_nfl",
+                "type": "api",
+                "api_type": "weather",
+                "league": "americanfootball_nfl",
+                "hours_ahead": 72,
+            },
+            {
+                "name": "espn_nba_injuries",
+                "type": "api",
+                "api_type": "espn_injuries",
+                "sport": "basketball",
+                "league": "nba",
+            },
+            {
+                "name": "espn_nba_lineups",
+                "type": "api",
+                "api_type": "espn_lineups",
+                "sport": "basketball",
+                "league": "nba",
+            },
         ],
     },
     
@@ -58,6 +96,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_probability_delta": 0.02,
         "min_lag_seconds": 5,
         "max_lag_seconds": 300,
+    },
+
+    "event_impact": {
+        "pre_window_minutes": 30,
+        "post_window_minutes": 120,
+        "max_event_age_hours": 72,
+        "min_snapshot_count": 1,
+    },
+
+    "api": {
+        "user_agent": "insights-generator/0.1",
+        "request_timeout_seconds": 15,
+    },
+
+    "espn": {
+        "cache_hours": 24,
     },
     
     "ml": {
@@ -174,6 +228,39 @@ def get_lag_detection_config() -> dict[str, Any]:
     return config.get("lag_detection", DEFAULT_CONFIG["lag_detection"])
 
 
+def get_event_impact_config() -> dict[str, Any]:
+    """
+    Get event impact configuration.
+
+    Returns:
+        dict: Event impact config with windows and thresholds
+    """
+    config = get_config()
+    return config.get("event_impact", DEFAULT_CONFIG["event_impact"])
+
+
+def get_api_config() -> dict[str, Any]:
+    """
+    Get API helper configuration.
+
+    Returns:
+        dict: API config with user agent and timeout settings
+    """
+    config = get_config()
+    return config.get("api", DEFAULT_CONFIG["api"])
+
+
+def get_espn_config() -> dict[str, Any]:
+    """
+    Get ESPN config for roster/injury cache behavior.
+
+    Returns:
+        dict: ESPN config with cache settings
+    """
+    config = get_config()
+    return config.get("espn", DEFAULT_CONFIG["espn"])
+
+
 def get_ml_config() -> dict[str, Any]:
     """
     Get ML pipeline configuration.
@@ -261,10 +348,13 @@ def validate_config() -> list[str]:
     for i, source in enumerate(sources):
         if "name" not in source:
             errors.append(f"News source {i} missing 'name'")
-        if "url" not in source:
-            errors.append(f"News source {i} missing 'url'")
         if "type" not in source:
             errors.append(f"News source {i} missing 'type'")
+        source_type = source.get("type")
+        if source_type == "rss" and "url" not in source:
+            errors.append(f"News source {i} missing 'url'")
+        if source_type == "api" and "api_type" not in source:
+            errors.append(f"News source {i} missing 'api_type'")
     
     # Check Ollama config
     nlp = config.get("nlp", {})

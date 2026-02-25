@@ -32,6 +32,23 @@ python services/detect_opportunities.py
 
 Manual trading helpers live in `payment_methods/` (callable from your own scripts).
 
+## Insights Generator
+
+On-demand insights tooling lives in `insights_generator/`:
+
+| Command | Description |
+|---------|-------------|
+| `python -m insights_generator.cli scrape` | Fetch news headlines (RSS + API sources) |
+| `python -m insights_generator.cli analyze` | Process headlines with Ollama NLP |
+| `python -m insights_generator.cli detect-lag` | Detect lead/lag signals |
+| `python -m insights_generator.cli event-impacts` | Compute event → market impact metrics |
+| `python -m insights_generator.cli train` | Train ML model |
+| `python -m insights_generator.cli predict` | Run ML predictions |
+| `python -m insights_generator.cli status` | Show data summary |
+| `python -m insights_generator.cli init-db` | Initialize insights tables |
+
+Alias maps for teams/providers/markets live in `data/aliases/`. ESPN roster caches are written to `insights_generator/cache/` (gitignored).
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -68,4 +85,4 @@ Manual trading helpers live in `payment_methods/` (callable from your own script
 
 ## Config
 
-Edit `config.yaml` to control sources, sports, markets, and fees.
+Edit `config.yaml` to control sources, sports, markets, and fees. The `insights_generator` section configures RSS/API sources, NLP/ML settings, and event impact windows.

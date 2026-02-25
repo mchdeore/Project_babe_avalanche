@@ -1,0 +1,48 @@
+# Canonical market names mapped to known aliases
+
+h2h:
+  - moneyline
+  - money_line
+  - ml
+  - headtohead
+  - head to head
+  - h2h
+spreads:
+  - spread
+  - point_spread
+  - point spread
+  - spreads
+  - handicap
+  - line
+  - puck_line
+  - run_line
+  - run line
+  - puck line
+totals:
+  - total
+  - totals
+  - over_under
+  - over under
+  - ou
+  - o/u
+futures:
+  - future
+  - futures
+  - championship
+  - outright
+player_points:
+  - player points
+  - points
+  - player_points
+player_rebounds:
+  - player rebounds
+  - rebounds
+  - player_rebounds
+player_assists:
+  - player assists
+  - assists
+  - player_assists
+player_threes:
+  - player threes
+  - threes
+  - player_threes

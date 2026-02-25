@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from adapters import adapter_polymarket as polymarket
-from adapters.adapter_common import apply_devig, save_to_db
+from adapters.adapter_common import apply_canonicalization, apply_devig, save_to_db
 from utils import init_db, load_config
 
 DEFAULT_INTERVAL = 60  # seconds
@@ -57,6 +57,7 @@ def run_once() -> tuple[int, int]:
     with requests.Session() as session:
         games, rows = polymarket.fetch(session, config, existing_games)
 
+    rows = apply_canonicalization(rows)
     rows = apply_devig(rows)
     save_to_db(conn, games, rows)
     conn.close()
@@ -97,13 +98,20 @@ def main() -> None:
     parser.add_argument(
         "--interval", 
         type=int, 
-        default=DEFAULT_INTERVAL,
-        help=f"Seconds between polls in daemon mode (default: {DEFAULT_INTERVAL})"
+        default=None,
+        help=f"Seconds between polls in daemon mode (default: config or {DEFAULT_INTERVAL})"
     )
     args = parser.parse_args()
 
+    interval = args.interval
+    if interval is None:
+        config = load_config()
+        interval = config.get("sources", {}).get("polymarket", {}).get(
+            "poll_interval_seconds", DEFAULT_INTERVAL
+        )
+
     if args.daemon:
-        run_daemon(args.interval)
+        run_daemon(interval)
     else:
         games, rows = run_once()
         print(f"polymarket: games={games} rows={rows}")

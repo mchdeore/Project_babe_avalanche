@@ -6,11 +6,8 @@ Scrapes sports news headlines from RSS feeds and other sources.
 Headlines are stored in the news_headlines table for later NLP processing.
 
 Supported source types:
-- rss: Standard RSS/Atom feeds (ESPN, Rotoworld, etc.)
-
-Future source types (not yet implemented):
-- api: Direct API integrations (Twitter, official league APIs)
-- scrape: Web scraping for sites without feeds
+- rss: Standard RSS/Atom feeds (ESPN, etc.)
+- api: Direct API integrations (Reddit, weather, ESPN)
 
 Usage:
 ------
@@ -20,10 +17,15 @@ Usage:
 """
 
 import hashlib
-import re
+import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
+
+from aliases import canonical_team, get_team_aliases_by_league
+from insights_generator.rosters import build_player_index
+from insights_generator.scrapers.api_scraper import scrape_api
+from utils import normalize_player, normalize_team, parse_iso_timestamp
 
 try:
     import feedparser
@@ -34,41 +36,7 @@ except ImportError:
     print("Install with: pip install feedparser")
 
 
-# =============================================================================
-# TEAM NAME PATTERNS
-# =============================================================================
-# Used to match headlines to games
-
-NBA_TEAMS = {
-    "hawks", "celtics", "nets", "hornets", "bulls", "cavaliers", "cavs",
-    "mavericks", "mavs", "nuggets", "pistons", "warriors", "rockets",
-    "pacers", "clippers", "lakers", "grizzlies", "heat", "bucks", "timberwolves",
-    "wolves", "pelicans", "knicks", "thunder", "magic", "76ers", "sixers",
-    "suns", "blazers", "trail blazers", "kings", "spurs", "raptors", "jazz", "wizards",
-    "atlanta", "boston", "brooklyn", "charlotte", "chicago", "cleveland",
-    "dallas", "denver", "detroit", "golden state", "houston", "indiana",
-    "los angeles", "la", "memphis", "miami", "milwaukee", "minnesota",
-    "new orleans", "new york", "oklahoma city", "okc", "orlando", "philadelphia",
-    "philly", "phoenix", "portland", "sacramento", "san antonio", "toronto",
-    "utah", "washington",
-}
-
-NFL_TEAMS = {
-    "cardinals", "falcons", "ravens", "bills", "panthers", "bears",
-    "bengals", "browns", "cowboys", "broncos", "lions", "packers",
-    "texans", "colts", "jaguars", "chiefs", "raiders", "chargers",
-    "rams", "dolphins", "vikings", "patriots", "saints", "giants",
-    "jets", "eagles", "steelers", "49ers", "niners", "seahawks",
-    "buccaneers", "bucs", "titans", "commanders", "redskins",
-    "arizona", "atlanta", "baltimore", "buffalo", "carolina", "chicago",
-    "cincinnati", "cleveland", "dallas", "denver", "detroit", "green bay",
-    "houston", "indianapolis", "jacksonville", "kansas city", "las vegas",
-    "los angeles", "la", "miami", "minnesota", "new england", "new orleans",
-    "new york", "ny", "philadelphia", "philly", "pittsburgh", "san francisco",
-    "seattle", "tampa bay", "tampa", "tennessee", "washington",
-}
-
-ALL_TEAMS = NBA_TEAMS | NFL_TEAMS
+MIN_ALIAS_LENGTH = 3
 
 
 def scrape_all_sources(
@@ -91,13 +59,15 @@ def scrape_all_sources(
         source_name = source.get("name", "unknown")
         source_url = source.get("url", "")
         source_type = source.get("type", "rss")
-        
+
         if source_type == "rss":
             count = scrape_rss(conn, source_name, source_url)
+        elif source_type == "api":
+            count = scrape_api(conn, source)
         else:
             print(f"Warning: Unknown source type '{source_type}' for {source_name}")
             count = 0
-        
+
         results[source_name] = count
     
     return results
@@ -108,6 +78,7 @@ def scrape_news(
     source_name: str,
     source_url: str,
     source_type: str = "rss",
+    source_config: dict[str, Any] | None = None,
 ) -> int:
     """
     Scrape news from a single source.
@@ -123,9 +94,12 @@ def scrape_news(
     """
     if source_type == "rss":
         return scrape_rss(conn, source_name, source_url)
-    else:
-        print(f"Warning: Source type '{source_type}' not implemented")
-        return 0
+    if source_type == "api":
+        cfg = source_config or {"name": source_name, "type": "api"}
+        return scrape_api(conn, cfg)
+
+    print(f"Warning: Source type '{source_type}' not implemented")
+    return 0
 
 
 def scrape_rss(
@@ -194,10 +168,10 @@ def scrape_rss(
         if cursor.fetchone():
             continue
         
-        # Match teams in headline
-        matched_teams = _extract_teams(headline + " " + summary)
-        matched_teams_json = str(list(matched_teams)) if matched_teams else None
-        
+        # Match teams/players in headline
+        matched_teams, _matched_players = _extract_entities(headline + " " + summary)
+        matched_teams_json = json.dumps(sorted(matched_teams)) if matched_teams else None
+
         # Try to match to a game (optional, can be null)
         game_id = _match_to_game(conn, matched_teams, published_at)
         
@@ -229,26 +203,42 @@ def scrape_rss(
     return new_count
 
 
-def _extract_teams(text: str) -> set[str]:
+def _extract_entities(text: str) -> tuple[set[str], set[str]]:
     """
-    Extract team names mentioned in text.
-    
-    Args:
-        text: Text to search for team names
-        
+    Extract canonical teams and players mentioned in text.
+
     Returns:
-        set: Set of matched team names (lowercase)
+        tuple: (matched_team_keys, matched_players)
     """
-    text_lower = text.lower()
-    matched = set()
-    
-    for team in ALL_TEAMS:
-        # Use word boundaries to avoid partial matches
-        pattern = r'\b' + re.escape(team) + r'\b'
-        if re.search(pattern, text_lower):
-            matched.add(team)
-    
-    return matched
+    matched_teams: set[str] = set()
+    matched_players: set[str] = set()
+
+    text_team_norm = normalize_team(text)
+    team_aliases = get_team_aliases_by_league()
+
+    for league, alias_map in team_aliases.items():
+        for alias_norm, keys in alias_map.items():
+            if len(alias_norm) < MIN_ALIAS_LENGTH:
+                continue
+            if alias_norm in text_team_norm:
+                matched_teams.update(keys)
+
+    # Player matching from cached rosters (if available)
+    leagues = list(team_aliases.keys())
+    player_index = build_player_index(leagues)
+    text_player_norm = normalize_player(text)
+
+    for player_norm, info in player_index.items():
+        if len(player_norm) < 6:
+            continue
+        if player_norm in text_player_norm:
+            player_name = info.get("player") or player_norm
+            matched_players.add(player_name)
+            team_key = info.get("team_key")
+            if team_key:
+                matched_teams.add(team_key)
+
+    return matched_teams, matched_players
 
 
 def _match_to_game(
@@ -257,51 +247,58 @@ def _match_to_game(
     published_at: str | None,
 ) -> str | None:
     """
-    Try to match teams to an upcoming game.
-    
-    Args:
-        conn: Database connection
-        teams: Set of team names mentioned
-        published_at: When the article was published
-        
-    Returns:
-        str | None: game_id if matched, None otherwise
+    Try to match canonical team keys to an upcoming game.
     """
-    if not teams or len(teams) < 1:
+    if not teams:
         return None
-    
-    # Build query to find games with matching teams
-    # This is a simple heuristic - match if any team name appears in home/away
-    team_patterns = [f"%{team}%" for team in teams]
-    
-    placeholders = " OR ".join(
-        ["(LOWER(home_team) LIKE ? OR LOWER(away_team) LIKE ?)"] * len(team_patterns)
-    )
-    
-    params = []
-    for pattern in team_patterns:
-        params.extend([pattern, pattern])
-    
+
     # Look for games in the near future (next 7 days)
-    query = f"""
-        SELECT game_id, home_team, away_team, commence_time
+    query = """
+        SELECT game_id, league, home_team, away_team, commence_time
         FROM games
-        WHERE ({placeholders})
-        AND commence_time >= datetime('now')
+        WHERE commence_time >= datetime('now')
         AND commence_time <= datetime('now', '+7 days')
         ORDER BY commence_time ASC
-        LIMIT 1
     """
-    
+
     try:
-        cursor = conn.execute(query, params)
-        row = cursor.fetchone()
-        if row:
-            return row["game_id"]
+        cursor = conn.execute(query)
+        rows = cursor.fetchall()
     except sqlite3.Error:
-        pass
-    
-    return None
+        return None
+
+    event_time = parse_iso_timestamp(published_at) if published_at else None
+    if event_time is None:
+        event_time = datetime.now(timezone.utc)
+
+    best_game = None
+    best_score = (-1, float("inf"))
+
+    for row in rows:
+        league = row["league"]
+        home_key = canonical_team(row["home_team"], league)
+        away_key = canonical_team(row["away_team"], league)
+
+        score = 0
+        if home_key in teams:
+            score += 1
+        if away_key in teams:
+            score += 1
+        if score == 0:
+            continue
+
+        commence = parse_iso_timestamp(row["commence_time"]) if row["commence_time"] else None
+        if commence is None:
+            time_delta = float("inf")
+        else:
+            time_delta = abs((commence - event_time).total_seconds())
+
+        candidate_score = (score, time_delta)
+        if candidate_score > best_score:
+            best_score = candidate_score
+            best_game = row["game_id"]
+
+    return best_game
 
 
 def get_unprocessed_headlines(

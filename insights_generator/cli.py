@@ -14,6 +14,7 @@ Commands:
     scrape       Fetch news headlines from configured RSS sources
     analyze      Process unprocessed headlines through Ollama NLP
     detect-lag   Analyze market history for lead/lag signals
+    event-impacts  Compute event → market impact metrics
     train        Train ML model on collected data
     predict      Run predictions on current market data
     status       Show summary of collected data and model status
@@ -29,6 +30,9 @@ Examples:
     
     # Detect lead/lag signals from last 60 minutes
     python -m insights_generator.cli detect-lag --lookback 60
+
+    # Compute event -> market impacts
+    python -m insights_generator.cli event-impacts
     
     # Show status summary
     python -m insights_generator.cli status
@@ -44,9 +48,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from insights_generator.config import (
-    get_config,
     get_database_path,
     get_lag_detection_config,
+    get_event_impact_config,
     get_ml_config,
     get_news_sources,
     get_ollama_config,
@@ -205,6 +209,46 @@ def cmd_detect_lag(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     
+    return 0
+
+
+def cmd_event_impacts(args: argparse.Namespace) -> int:
+    """
+    Compute event -> market impact metrics.
+    """
+    from insights_generator.analyzers.event_impact import compute_event_impacts
+
+    print("=" * 60)
+    print("INSIGHTS GENERATOR - EVENT IMPACTS")
+    print("=" * 60)
+
+    cfg = get_event_impact_config()
+    pre_window = args.pre_window or cfg.get("pre_window_minutes", 30)
+    post_window = args.post_window or cfg.get("post_window_minutes", 120)
+    max_age = args.max_age or cfg.get("max_event_age_hours", 72)
+    min_snapshots = args.min_snapshots or cfg.get("min_snapshot_count", 1)
+
+    print(f"\nPre-window: {pre_window} minutes")
+    print(f"Post-window: {post_window} minutes")
+    print(f"Max event age: {max_age} hours")
+    print(f"Min snapshots: {min_snapshots}")
+
+    conn = init_insights_db()
+    try:
+        impacts = compute_event_impacts(
+            conn,
+            pre_window_minutes=pre_window,
+            post_window_minutes=post_window,
+            max_event_age_hours=max_age,
+            min_snapshot_count=min_snapshots,
+        )
+        print("\n" + "-" * 40)
+        print("RESULTS:")
+        print("-" * 40)
+        print(f"  Impacts computed: {len(impacts)}")
+    finally:
+        conn.close()
+
     return 0
 
 
@@ -396,6 +440,13 @@ def cmd_status(args: argparse.Namespace) -> int:
             print("  Top provider pairs:")
             for row in signal_pairs:
                 print(f"    {row['leader_provider']} → {row['lagger_provider']}: {row['count']}")
+
+        # Count event impacts
+        cursor = conn.execute("SELECT COUNT(*) FROM event_market_impacts")
+        total_impacts = cursor.fetchone()[0]
+
+        print(f"\nEvent Impacts:")
+        print(f"  Total: {total_impacts}")
         
         # Count predictions
         cursor = conn.execute("SELECT COUNT(*) FROM ml_predictions")
@@ -471,6 +522,7 @@ Examples:
   %(prog)s scrape              Fetch news headlines
   %(prog)s analyze             Process headlines with Ollama
   %(prog)s detect-lag          Find lead/lag signals
+  %(prog)s event-impacts       Compute event -> market impacts
   %(prog)s status              Show data summary
         """,
     )
@@ -499,6 +551,29 @@ Examples:
         "--min-delta", "-d",
         type=float,
         help="Minimum probability delta (default: from config)",
+    )
+
+    # event-impacts command
+    event_parser = subparsers.add_parser("event-impacts", help="Compute event -> market impact metrics")
+    event_parser.add_argument(
+        "--pre-window",
+        type=int,
+        help="Minutes to look back for baseline (default: from config)",
+    )
+    event_parser.add_argument(
+        "--post-window",
+        type=int,
+        help="Minutes to look forward for impact (default: from config)",
+    )
+    event_parser.add_argument(
+        "--max-age",
+        type=int,
+        help="Max event age in hours (default: from config)",
+    )
+    event_parser.add_argument(
+        "--min-snapshots",
+        type=int,
+        help="Minimum snapshots in post-window (default: from config)",
     )
     
     # train command
@@ -536,6 +611,7 @@ Examples:
         "scrape": cmd_scrape,
         "analyze": cmd_analyze,
         "detect-lag": cmd_detect_lag,
+        "event-impacts": cmd_event_impacts,
         "train": cmd_train,
         "predict": cmd_predict,
         "status": cmd_status,

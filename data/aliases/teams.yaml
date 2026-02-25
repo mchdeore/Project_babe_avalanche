@@ -1,0 +1,1427 @@
+# Canonical team records and aliases
+# Each league contains a list of team records.
+# key is the canonical team identifier used internally.
+
+basketball_nba:
+  - key: nba_atlanta_hawks
+    name: Atlanta Hawks
+    city: Atlanta, GA
+    abbrev: ATL
+    lat: 33.7490
+    lon: -84.3880
+    aliases:
+      - atlanta hawks
+      - hawks
+      - atl
+      - atlanta
+  - key: nba_boston_celtics
+    name: Boston Celtics
+    city: Boston, MA
+    abbrev: BOS
+    lat: 42.3601
+    lon: -71.0589
+    aliases:
+      - boston celtics
+      - celtics
+      - bos
+      - boston
+  - key: nba_brooklyn_nets
+    name: Brooklyn Nets
+    city: Brooklyn, NY
+    abbrev: BKN
+    lat: 40.6782
+    lon: -73.9442
+    aliases:
+      - brooklyn nets
+      - nets
+      - bkn
+      - brooklyn
+  - key: nba_charlotte_hornets
+    name: Charlotte Hornets
+    city: Charlotte, NC
+    abbrev: CHA
+    lat: 35.2271
+    lon: -80.8431
+    aliases:
+      - charlotte hornets
+      - hornets
+      - cha
+      - charlotte
+  - key: nba_chicago_bulls
+    name: Chicago Bulls
+    city: Chicago, IL
+    abbrev: CHI
+    lat: 41.8781
+    lon: -87.6298
+    aliases:
+      - chicago bulls
+      - bulls
+      - chi
+      - chicago
+  - key: nba_cleveland_cavaliers
+    name: Cleveland Cavaliers
+    city: Cleveland, OH
+    abbrev: CLE
+    lat: 41.4993
+    lon: -81.6944
+    aliases:
+      - cleveland cavaliers
+      - cavaliers
+      - cavs
+      - cle
+      - cleveland
+  - key: nba_dallas_mavericks
+    name: Dallas Mavericks
+    city: Dallas, TX
+    abbrev: DAL
+    lat: 32.7767
+    lon: -96.7970
+    aliases:
+      - dallas mavericks
+      - mavericks
+      - mavs
+      - dal
+      - dallas
+  - key: nba_denver_nuggets
+    name: Denver Nuggets
+    city: Denver, CO
+    abbrev: DEN
+    lat: 39.7392
+    lon: -104.9903
+    aliases:
+      - denver nuggets
+      - nuggets
+      - den
+      - denver
+  - key: nba_detroit_pistons
+    name: Detroit Pistons
+    city: Detroit, MI
+    abbrev: DET
+    lat: 42.3314
+    lon: -83.0458
+    aliases:
+      - detroit pistons
+      - pistons
+      - det
+      - detroit
+  - key: nba_golden_state_warriors
+    name: Golden State Warriors
+    city: San Francisco, CA
+    abbrev: GSW
+    lat: 37.7749
+    lon: -122.4194
+    aliases:
+      - golden state warriors
+      - warriors
+      - gsw
+      - golden state
+  - key: nba_houston_rockets
+    name: Houston Rockets
+    city: Houston, TX
+    abbrev: HOU
+    lat: 29.7604
+    lon: -95.3698
+    aliases:
+      - houston rockets
+      - rockets
+      - hou
+      - houston
+  - key: nba_indiana_pacers
+    name: Indiana Pacers
+    city: Indianapolis, IN
+    abbrev: IND
+    lat: 39.7684
+    lon: -86.1581
+    aliases:
+      - indiana pacers
+      - pacers
+      - ind
+      - indiana
+  - key: nba_los_angeles_clippers
+    name: LA Clippers
+    city: Los Angeles, CA
+    abbrev: LAC
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles clippers
+      - la clippers
+      - clippers
+      - lac
+      - los angeles
+      - la
+  - key: nba_los_angeles_lakers
+    name: Los Angeles Lakers
+    city: Los Angeles, CA
+    abbrev: LAL
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles lakers
+      - la lakers
+      - lakers
+      - lal
+      - los angeles
+      - la
+  - key: nba_memphis_grizzlies
+    name: Memphis Grizzlies
+    city: Memphis, TN
+    abbrev: MEM
+    lat: 35.1495
+    lon: -90.0490
+    aliases:
+      - memphis grizzlies
+      - grizzlies
+      - mem
+      - memphis
+  - key: nba_miami_heat
+    name: Miami Heat
+    city: Miami, FL
+    abbrev: MIA
+    lat: 25.7617
+    lon: -80.1918
+    aliases:
+      - miami heat
+      - heat
+      - mia
+      - miami
+  - key: nba_milwaukee_bucks
+    name: Milwaukee Bucks
+    city: Milwaukee, WI
+    abbrev: MIL
+    lat: 43.0389
+    lon: -87.9065
+    aliases:
+      - milwaukee bucks
+      - bucks
+      - mil
+      - milwaukee
+  - key: nba_minnesota_timberwolves
+    name: Minnesota Timberwolves
+    city: Minneapolis, MN
+    abbrev: MIN
+    lat: 44.9778
+    lon: -93.2650
+    aliases:
+      - minnesota timberwolves
+      - timberwolves
+      - wolves
+      - min
+      - minnesota
+  - key: nba_new_orleans_pelicans
+    name: New Orleans Pelicans
+    city: New Orleans, LA
+    abbrev: NOP
+    lat: 29.9511
+    lon: -90.0715
+    aliases:
+      - new orleans pelicans
+      - pelicans
+      - nop
+      - new orleans
+  - key: nba_new_york_knicks
+    name: New York Knicks
+    city: New York, NY
+    abbrev: NYK
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york knicks
+      - knicks
+      - nyk
+      - new york
+  - key: nba_oklahoma_city_thunder
+    name: Oklahoma City Thunder
+    city: Oklahoma City, OK
+    abbrev: OKC
+    lat: 35.4676
+    lon: -97.5164
+    aliases:
+      - oklahoma city thunder
+      - thunder
+      - okc
+      - oklahoma city
+  - key: nba_orlando_magic
+    name: Orlando Magic
+    city: Orlando, FL
+    abbrev: ORL
+    lat: 28.5383
+    lon: -81.3792
+    aliases:
+      - orlando magic
+      - magic
+      - orl
+      - orlando
+  - key: nba_philadelphia_76ers
+    name: Philadelphia 76ers
+    city: Philadelphia, PA
+    abbrev: PHI
+    lat: 39.9526
+    lon: -75.1652
+    aliases:
+      - philadelphia 76ers
+      - 76ers
+      - sixers
+      - phi
+      - philadelphia
+      - philly
+  - key: nba_phoenix_suns
+    name: Phoenix Suns
+    city: Phoenix, AZ
+    abbrev: PHX
+    lat: 33.4484
+    lon: -112.0740
+    aliases:
+      - phoenix suns
+      - suns
+      - phx
+      - phoenix
+  - key: nba_portland_trail_blazers
+    name: Portland Trail Blazers
+    city: Portland, OR
+    abbrev: POR
+    lat: 45.5152
+    lon: -122.6784
+    aliases:
+      - portland trail blazers
+      - trail blazers
+      - blazers
+      - por
+      - portland
+  - key: nba_sacramento_kings
+    name: Sacramento Kings
+    city: Sacramento, CA
+    abbrev: SAC
+    lat: 38.5816
+    lon: -121.4944
+    aliases:
+      - sacramento kings
+      - kings
+      - sac
+      - sacramento
+  - key: nba_san_antonio_spurs
+    name: San Antonio Spurs
+    city: San Antonio, TX
+    abbrev: SAS
+    lat: 29.4241
+    lon: -98.4936
+    aliases:
+      - san antonio spurs
+      - spurs
+      - sas
+      - san antonio
+  - key: nba_toronto_raptors
+    name: Toronto Raptors
+    city: Toronto, ON
+    abbrev: TOR
+    lat: 43.6532
+    lon: -79.3832
+    aliases:
+      - toronto raptors
+      - raptors
+      - tor
+      - toronto
+  - key: nba_utah_jazz
+    name: Utah Jazz
+    city: Salt Lake City, UT
+    abbrev: UTA
+    lat: 40.7608
+    lon: -111.8910
+    aliases:
+      - utah jazz
+      - jazz
+      - uta
+      - utah
+      - salt lake city
+  - key: nba_washington_wizards
+    name: Washington Wizards
+    city: Washington, DC
+    abbrev: WAS
+    lat: 38.9072
+    lon: -77.0369
+    aliases:
+      - washington wizards
+      - wizards
+      - was
+      - washington
+
+americanfootball_nfl:
+  - key: nfl_arizona_cardinals
+    name: Arizona Cardinals
+    city: Phoenix, AZ
+    abbrev: ARI
+    lat: 33.4484
+    lon: -112.0740
+    aliases:
+      - arizona cardinals
+      - cardinals
+      - ari
+      - arizona
+  - key: nfl_atlanta_falcons
+    name: Atlanta Falcons
+    city: Atlanta, GA
+    abbrev: ATL
+    lat: 33.7490
+    lon: -84.3880
+    aliases:
+      - atlanta falcons
+      - falcons
+      - atl
+      - atlanta
+  - key: nfl_baltimore_ravens
+    name: Baltimore Ravens
+    city: Baltimore, MD
+    abbrev: BAL
+    lat: 39.2904
+    lon: -76.6122
+    aliases:
+      - baltimore ravens
+      - ravens
+      - bal
+      - baltimore
+  - key: nfl_buffalo_bills
+    name: Buffalo Bills
+    city: Buffalo, NY
+    abbrev: BUF
+    lat: 42.8864
+    lon: -78.8784
+    aliases:
+      - buffalo bills
+      - bills
+      - buf
+      - buffalo
+  - key: nfl_carolina_panthers
+    name: Carolina Panthers
+    city: Charlotte, NC
+    abbrev: CAR
+    lat: 35.2271
+    lon: -80.8431
+    aliases:
+      - carolina panthers
+      - panthers
+      - car
+      - carolina
+  - key: nfl_chicago_bears
+    name: Chicago Bears
+    city: Chicago, IL
+    abbrev: CHI
+    lat: 41.8781
+    lon: -87.6298
+    aliases:
+      - chicago bears
+      - bears
+      - chi
+      - chicago
+  - key: nfl_cincinnati_bengals
+    name: Cincinnati Bengals
+    city: Cincinnati, OH
+    abbrev: CIN
+    lat: 39.1031
+    lon: -84.5120
+    aliases:
+      - cincinnati bengals
+      - bengals
+      - cin
+      - cincinnati
+  - key: nfl_cleveland_browns
+    name: Cleveland Browns
+    city: Cleveland, OH
+    abbrev: CLE
+    lat: 41.4993
+    lon: -81.6944
+    aliases:
+      - cleveland browns
+      - browns
+      - cle
+      - cleveland
+  - key: nfl_dallas_cowboys
+    name: Dallas Cowboys
+    city: Dallas, TX
+    abbrev: DAL
+    lat: 32.7767
+    lon: -96.7970
+    aliases:
+      - dallas cowboys
+      - cowboys
+      - dal
+      - dallas
+  - key: nfl_denver_broncos
+    name: Denver Broncos
+    city: Denver, CO
+    abbrev: DEN
+    lat: 39.7392
+    lon: -104.9903
+    aliases:
+      - denver broncos
+      - broncos
+      - den
+      - denver
+  - key: nfl_detroit_lions
+    name: Detroit Lions
+    city: Detroit, MI
+    abbrev: DET
+    lat: 42.3314
+    lon: -83.0458
+    aliases:
+      - detroit lions
+      - lions
+      - det
+      - detroit
+  - key: nfl_green_bay_packers
+    name: Green Bay Packers
+    city: Green Bay, WI
+    abbrev: GB
+    lat: 44.5133
+    lon: -88.0133
+    aliases:
+      - green bay packers
+      - packers
+      - gb
+      - green bay
+  - key: nfl_houston_texans
+    name: Houston Texans
+    city: Houston, TX
+    abbrev: HOU
+    lat: 29.7604
+    lon: -95.3698
+    aliases:
+      - houston texans
+      - texans
+      - hou
+      - houston
+  - key: nfl_indianapolis_colts
+    name: Indianapolis Colts
+    city: Indianapolis, IN
+    abbrev: IND
+    lat: 39.7684
+    lon: -86.1581
+    aliases:
+      - indianapolis colts
+      - colts
+      - ind
+      - indianapolis
+  - key: nfl_jacksonville_jaguars
+    name: Jacksonville Jaguars
+    city: Jacksonville, FL
+    abbrev: JAX
+    lat: 30.3322
+    lon: -81.6557
+    aliases:
+      - jacksonville jaguars
+      - jaguars
+      - jags
+      - jax
+      - jacksonville
+  - key: nfl_kansas_city_chiefs
+    name: Kansas City Chiefs
+    city: Kansas City, MO
+    abbrev: KC
+    lat: 39.0997
+    lon: -94.5786
+    aliases:
+      - kansas city chiefs
+      - chiefs
+      - kc
+      - kansas city
+  - key: nfl_las_vegas_raiders
+    name: Las Vegas Raiders
+    city: Las Vegas, NV
+    abbrev: LV
+    lat: 36.1699
+    lon: -115.1398
+    aliases:
+      - las vegas raiders
+      - raiders
+      - lv
+      - las vegas
+  - key: nfl_los_angeles_chargers
+    name: Los Angeles Chargers
+    city: Los Angeles, CA
+    abbrev: LAC
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles chargers
+      - la chargers
+      - chargers
+      - lac
+      - los angeles
+      - la
+  - key: nfl_los_angeles_rams
+    name: Los Angeles Rams
+    city: Los Angeles, CA
+    abbrev: LAR
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles rams
+      - la rams
+      - rams
+      - lar
+      - los angeles
+      - la
+  - key: nfl_miami_dolphins
+    name: Miami Dolphins
+    city: Miami, FL
+    abbrev: MIA
+    lat: 25.7617
+    lon: -80.1918
+    aliases:
+      - miami dolphins
+      - dolphins
+      - mia
+      - miami
+  - key: nfl_minnesota_vikings
+    name: Minnesota Vikings
+    city: Minneapolis, MN
+    abbrev: MIN
+    lat: 44.9778
+    lon: -93.2650
+    aliases:
+      - minnesota vikings
+      - vikings
+      - min
+      - minnesota
+  - key: nfl_new_england_patriots
+    name: New England Patriots
+    city: Foxborough, MA
+    abbrev: NE
+    lat: 42.0654
+    lon: -71.2478
+    aliases:
+      - new england patriots
+      - patriots
+      - pats
+      - ne
+      - new england
+  - key: nfl_new_orleans_saints
+    name: New Orleans Saints
+    city: New Orleans, LA
+    abbrev: NO
+    lat: 29.9511
+    lon: -90.0715
+    aliases:
+      - new orleans saints
+      - saints
+      - no
+      - new orleans
+  - key: nfl_new_york_giants
+    name: New York Giants
+    city: New York, NY
+    abbrev: NYG
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york giants
+      - giants
+      - nyg
+      - new york
+  - key: nfl_new_york_jets
+    name: New York Jets
+    city: New York, NY
+    abbrev: NYJ
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york jets
+      - jets
+      - nyj
+      - new york
+  - key: nfl_philadelphia_eagles
+    name: Philadelphia Eagles
+    city: Philadelphia, PA
+    abbrev: PHI
+    lat: 39.9526
+    lon: -75.1652
+    aliases:
+      - philadelphia eagles
+      - eagles
+      - phi
+      - philadelphia
+      - philly
+  - key: nfl_pittsburgh_steelers
+    name: Pittsburgh Steelers
+    city: Pittsburgh, PA
+    abbrev: PIT
+    lat: 40.4406
+    lon: -79.9959
+    aliases:
+      - pittsburgh steelers
+      - steelers
+      - pit
+      - pittsburgh
+  - key: nfl_san_francisco_49ers
+    name: San Francisco 49ers
+    city: San Francisco, CA
+    abbrev: SF
+    lat: 37.7749
+    lon: -122.4194
+    aliases:
+      - san francisco 49ers
+      - 49ers
+      - niners
+      - sf
+      - san francisco
+  - key: nfl_seattle_seahawks
+    name: Seattle Seahawks
+    city: Seattle, WA
+    abbrev: SEA
+    lat: 47.6062
+    lon: -122.3321
+    aliases:
+      - seattle seahawks
+      - seahawks
+      - sea
+      - seattle
+  - key: nfl_tampa_bay_buccaneers
+    name: Tampa Bay Buccaneers
+    city: Tampa, FL
+    abbrev: TB
+    lat: 27.9506
+    lon: -82.4572
+    aliases:
+      - tampa bay buccaneers
+      - buccaneers
+      - bucs
+      - tb
+      - tampa bay
+  - key: nfl_tennessee_titans
+    name: Tennessee Titans
+    city: Nashville, TN
+    abbrev: TEN
+    lat: 36.1627
+    lon: -86.7816
+    aliases:
+      - tennessee titans
+      - titans
+      - ten
+      - tennessee
+      - nashville
+  - key: nfl_washington_commanders
+    name: Washington Commanders
+    city: Washington, DC
+    abbrev: WAS
+    lat: 38.9072
+    lon: -77.0369
+    aliases:
+      - washington commanders
+      - commanders
+      - was
+      - washington
+
+icehockey_nhl:
+  - key: nhl_anaheim_ducks
+    name: Anaheim Ducks
+    city: Anaheim, CA
+    abbrev: ANA
+    lat: 33.8366
+    lon: -117.9143
+    aliases:
+      - anaheim ducks
+      - ducks
+      - ana
+      - anaheim
+  - key: nhl_arizona_coyotes
+    name: Arizona Coyotes
+    city: Phoenix, AZ
+    abbrev: ARI
+    lat: 33.4484
+    lon: -112.0740
+    aliases:
+      - arizona coyotes
+      - coyotes
+      - ari
+      - arizona
+  - key: nhl_boston_bruins
+    name: Boston Bruins
+    city: Boston, MA
+    abbrev: BOS
+    lat: 42.3601
+    lon: -71.0589
+    aliases:
+      - boston bruins
+      - bruins
+      - bos
+      - boston
+  - key: nhl_buffalo_sabres
+    name: Buffalo Sabres
+    city: Buffalo, NY
+    abbrev: BUF
+    lat: 42.8864
+    lon: -78.8784
+    aliases:
+      - buffalo sabres
+      - sabres
+      - sabers
+      - buf
+      - buffalo
+  - key: nhl_calgary_flames
+    name: Calgary Flames
+    city: Calgary, AB
+    abbrev: CGY
+    lat: 51.0447
+    lon: -114.0719
+    aliases:
+      - calgary flames
+      - flames
+      - cgy
+      - calgary
+  - key: nhl_carolina_hurricanes
+    name: Carolina Hurricanes
+    city: Raleigh, NC
+    abbrev: CAR
+    lat: 35.7796
+    lon: -78.6382
+    aliases:
+      - carolina hurricanes
+      - hurricanes
+      - canes
+      - car
+      - carolina
+  - key: nhl_chicago_blackhawks
+    name: Chicago Blackhawks
+    city: Chicago, IL
+    abbrev: CHI
+    lat: 41.8781
+    lon: -87.6298
+    aliases:
+      - chicago blackhawks
+      - blackhawks
+      - hawks
+      - chi
+      - chicago
+  - key: nhl_colorado_avalanche
+    name: Colorado Avalanche
+    city: Denver, CO
+    abbrev: COL
+    lat: 39.7392
+    lon: -104.9903
+    aliases:
+      - colorado avalanche
+      - avalanche
+      - avs
+      - col
+      - colorado
+  - key: nhl_columbus_blue_jackets
+    name: Columbus Blue Jackets
+    city: Columbus, OH
+    abbrev: CBJ
+    lat: 39.9612
+    lon: -82.9988
+    aliases:
+      - columbus blue jackets
+      - blue jackets
+      - jackets
+      - cbj
+      - columbus
+  - key: nhl_dallas_stars
+    name: Dallas Stars
+    city: Dallas, TX
+    abbrev: DAL
+    lat: 32.7767
+    lon: -96.7970
+    aliases:
+      - dallas stars
+      - stars
+      - dal
+      - dallas
+  - key: nhl_detroit_red_wings
+    name: Detroit Red Wings
+    city: Detroit, MI
+    abbrev: DET
+    lat: 42.3314
+    lon: -83.0458
+    aliases:
+      - detroit red wings
+      - red wings
+      - wings
+      - det
+      - detroit
+  - key: nhl_edmonton_oilers
+    name: Edmonton Oilers
+    city: Edmonton, AB
+    abbrev: EDM
+    lat: 53.5461
+    lon: -113.4938
+    aliases:
+      - edmonton oilers
+      - oilers
+      - edm
+      - edmonton
+  - key: nhl_florida_panthers
+    name: Florida Panthers
+    city: Sunrise, FL
+    abbrev: FLA
+    lat: 26.1669
+    lon: -80.2563
+    aliases:
+      - florida panthers
+      - panthers
+      - fla
+      - florida
+  - key: nhl_los_angeles_kings
+    name: Los Angeles Kings
+    city: Los Angeles, CA
+    abbrev: LAK
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles kings
+      - la kings
+      - kings
+      - lak
+      - los angeles
+      - la
+  - key: nhl_minnesota_wild
+    name: Minnesota Wild
+    city: Minneapolis, MN
+    abbrev: MIN
+    lat: 44.9778
+    lon: -93.2650
+    aliases:
+      - minnesota wild
+      - wild
+      - min
+      - minnesota
+  - key: nhl_montreal_canadiens
+    name: Montreal Canadiens
+    city: Montreal, QC
+    abbrev: MTL
+    lat: 45.5017
+    lon: -73.5673
+    aliases:
+      - montreal canadiens
+      - canadiens
+      - habs
+      - mtl
+      - montreal
+  - key: nhl_nashville_predators
+    name: Nashville Predators
+    city: Nashville, TN
+    abbrev: NSH
+    lat: 36.1627
+    lon: -86.7816
+    aliases:
+      - nashville predators
+      - predators
+      - preds
+      - nsh
+      - nashville
+  - key: nhl_new_jersey_devils
+    name: New Jersey Devils
+    city: Newark, NJ
+    abbrev: NJD
+    lat: 40.7357
+    lon: -74.1724
+    aliases:
+      - new jersey devils
+      - devils
+      - njd
+      - new jersey
+  - key: nhl_new_york_islanders
+    name: New York Islanders
+    city: Elmont, NY
+    abbrev: NYI
+    lat: 40.7128
+    lon: -73.7017
+    aliases:
+      - new york islanders
+      - islanders
+      - nyi
+      - new york
+  - key: nhl_new_york_rangers
+    name: New York Rangers
+    city: New York, NY
+    abbrev: NYR
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york rangers
+      - rangers
+      - nyr
+      - new york
+  - key: nhl_ottawa_senators
+    name: Ottawa Senators
+    city: Ottawa, ON
+    abbrev: OTT
+    lat: 45.4215
+    lon: -75.6972
+    aliases:
+      - ottawa senators
+      - senators
+      - sens
+      - ott
+      - ottawa
+  - key: nhl_philadelphia_flyers
+    name: Philadelphia Flyers
+    city: Philadelphia, PA
+    abbrev: PHI
+    lat: 39.9526
+    lon: -75.1652
+    aliases:
+      - philadelphia flyers
+      - flyers
+      - phi
+      - philadelphia
+      - philly
+  - key: nhl_pittsburgh_penguins
+    name: Pittsburgh Penguins
+    city: Pittsburgh, PA
+    abbrev: PIT
+    lat: 40.4406
+    lon: -79.9959
+    aliases:
+      - pittsburgh penguins
+      - penguins
+      - pens
+      - pit
+      - pittsburgh
+  - key: nhl_san_jose_sharks
+    name: San Jose Sharks
+    city: San Jose, CA
+    abbrev: SJS
+    lat: 37.3382
+    lon: -121.8863
+    aliases:
+      - san jose sharks
+      - sharks
+      - sjs
+      - san jose
+  - key: nhl_seattle_kraken
+    name: Seattle Kraken
+    city: Seattle, WA
+    abbrev: SEA
+    lat: 47.6062
+    lon: -122.3321
+    aliases:
+      - seattle kraken
+      - kraken
+      - sea
+      - seattle
+  - key: nhl_st_louis_blues
+    name: St. Louis Blues
+    city: St. Louis, MO
+    abbrev: STL
+    lat: 38.6270
+    lon: -90.1994
+    aliases:
+      - st. louis blues
+      - st louis blues
+      - blues
+      - stl
+      - st louis
+  - key: nhl_tampa_bay_lightning
+    name: Tampa Bay Lightning
+    city: Tampa, FL
+    abbrev: TBL
+    lat: 27.9506
+    lon: -82.4572
+    aliases:
+      - tampa bay lightning
+      - lightning
+      - bolts
+      - tbl
+      - tampa bay
+  - key: nhl_toronto_maple_leafs
+    name: Toronto Maple Leafs
+    city: Toronto, ON
+    abbrev: TOR
+    lat: 43.6532
+    lon: -79.3832
+    aliases:
+      - toronto maple leafs
+      - maple leafs
+      - leafs
+      - tor
+      - toronto
+  - key: nhl_vancouver_canucks
+    name: Vancouver Canucks
+    city: Vancouver, BC
+    abbrev: VAN
+    lat: 49.2827
+    lon: -123.1207
+    aliases:
+      - vancouver canucks
+      - canucks
+      - van
+      - vancouver
+  - key: nhl_vegas_golden_knights
+    name: Vegas Golden Knights
+    city: Las Vegas, NV
+    abbrev: VGK
+    lat: 36.1699
+    lon: -115.1398
+    aliases:
+      - vegas golden knights
+      - golden knights
+      - vgk
+      - vegas
+  - key: nhl_washington_capitals
+    name: Washington Capitals
+    city: Washington, DC
+    abbrev: WAS
+    lat: 38.9072
+    lon: -77.0369
+    aliases:
+      - washington capitals
+      - capitals
+      - caps
+      - was
+      - washington
+  - key: nhl_winnipeg_jets
+    name: Winnipeg Jets
+    city: Winnipeg, MB
+    abbrev: WPG
+    lat: 49.8951
+    lon: -97.1384
+    aliases:
+      - winnipeg jets
+      - jets
+      - wpg
+      - winnipeg
+
+baseball_mlb:
+  - key: mlb_arizona_diamondbacks
+    name: Arizona Diamondbacks
+    city: Phoenix, AZ
+    abbrev: ARI
+    lat: 33.4484
+    lon: -112.0740
+    aliases:
+      - arizona diamondbacks
+      - diamondbacks
+      - dbacks
+      - ari
+      - arizona
+  - key: mlb_atlanta_braves
+    name: Atlanta Braves
+    city: Atlanta, GA
+    abbrev: ATL
+    lat: 33.7490
+    lon: -84.3880
+    aliases:
+      - atlanta braves
+      - braves
+      - atl
+      - atlanta
+  - key: mlb_baltimore_orioles
+    name: Baltimore Orioles
+    city: Baltimore, MD
+    abbrev: BAL
+    lat: 39.2904
+    lon: -76.6122
+    aliases:
+      - baltimore orioles
+      - orioles
+      - o's
+      - bal
+      - baltimore
+  - key: mlb_boston_red_sox
+    name: Boston Red Sox
+    city: Boston, MA
+    abbrev: BOS
+    lat: 42.3601
+    lon: -71.0589
+    aliases:
+      - boston red sox
+      - red sox
+      - sox
+      - bos
+      - boston
+  - key: mlb_chicago_cubs
+    name: Chicago Cubs
+    city: Chicago, IL
+    abbrev: CHC
+    lat: 41.8781
+    lon: -87.6298
+    aliases:
+      - chicago cubs
+      - cubs
+      - chc
+      - chicago
+  - key: mlb_chicago_white_sox
+    name: Chicago White Sox
+    city: Chicago, IL
+    abbrev: CHW
+    lat: 41.8781
+    lon: -87.6298
+    aliases:
+      - chicago white sox
+      - white sox
+      - chw
+      - chicago
+  - key: mlb_cincinnati_reds
+    name: Cincinnati Reds
+    city: Cincinnati, OH
+    abbrev: CIN
+    lat: 39.1031
+    lon: -84.5120
+    aliases:
+      - cincinnati reds
+      - reds
+      - cin
+      - cincinnati
+  - key: mlb_cleveland_guardians
+    name: Cleveland Guardians
+    city: Cleveland, OH
+    abbrev: CLE
+    lat: 41.4993
+    lon: -81.6944
+    aliases:
+      - cleveland guardians
+      - guardians
+      - cle
+      - cleveland
+  - key: mlb_colorado_rockies
+    name: Colorado Rockies
+    city: Denver, CO
+    abbrev: COL
+    lat: 39.7392
+    lon: -104.9903
+    aliases:
+      - colorado rockies
+      - rockies
+      - col
+      - colorado
+  - key: mlb_detroit_tigers
+    name: Detroit Tigers
+    city: Detroit, MI
+    abbrev: DET
+    lat: 42.3314
+    lon: -83.0458
+    aliases:
+      - detroit tigers
+      - tigers
+      - det
+      - detroit
+  - key: mlb_houston_astros
+    name: Houston Astros
+    city: Houston, TX
+    abbrev: HOU
+    lat: 29.7604
+    lon: -95.3698
+    aliases:
+      - houston astros
+      - astros
+      - hou
+      - houston
+  - key: mlb_kansas_city_royals
+    name: Kansas City Royals
+    city: Kansas City, MO
+    abbrev: KC
+    lat: 39.0997
+    lon: -94.5786
+    aliases:
+      - kansas city royals
+      - royals
+      - kc
+      - kansas city
+  - key: mlb_los_angeles_angels
+    name: Los Angeles Angels
+    city: Los Angeles, CA
+    abbrev: LAA
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles angels
+      - la angels
+      - angels
+      - laa
+      - los angeles
+      - la
+  - key: mlb_los_angeles_dodgers
+    name: Los Angeles Dodgers
+    city: Los Angeles, CA
+    abbrev: LAD
+    lat: 34.0522
+    lon: -118.2437
+    aliases:
+      - los angeles dodgers
+      - la dodgers
+      - dodgers
+      - lad
+      - los angeles
+      - la
+  - key: mlb_miami_marlins
+    name: Miami Marlins
+    city: Miami, FL
+    abbrev: MIA
+    lat: 25.7617
+    lon: -80.1918
+    aliases:
+      - miami marlins
+      - marlins
+      - mia
+      - miami
+  - key: mlb_milwaukee_brewers
+    name: Milwaukee Brewers
+    city: Milwaukee, WI
+    abbrev: MIL
+    lat: 43.0389
+    lon: -87.9065
+    aliases:
+      - milwaukee brewers
+      - brewers
+      - mil
+      - milwaukee
+  - key: mlb_minnesota_twins
+    name: Minnesota Twins
+    city: Minneapolis, MN
+    abbrev: MIN
+    lat: 44.9778
+    lon: -93.2650
+    aliases:
+      - minnesota twins
+      - twins
+      - min
+      - minnesota
+  - key: mlb_new_york_mets
+    name: New York Mets
+    city: New York, NY
+    abbrev: NYM
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york mets
+      - mets
+      - nym
+      - new york
+  - key: mlb_new_york_yankees
+    name: New York Yankees
+    city: New York, NY
+    abbrev: NYY
+    lat: 40.7128
+    lon: -74.0060
+    aliases:
+      - new york yankees
+      - yankees
+      - nyy
+      - new york
+  - key: mlb_oakland_athletics
+    name: Oakland Athletics
+    city: Oakland, CA
+    abbrev: OAK
+    lat: 37.8044
+    lon: -122.2712
+    aliases:
+      - oakland athletics
+      - athletics
+      - a's
+      - as
+      - oak
+      - oakland
+  - key: mlb_philadelphia_phillies
+    name: Philadelphia Phillies
+    city: Philadelphia, PA
+    abbrev: PHI
+    lat: 39.9526
+    lon: -75.1652
+    aliases:
+      - philadelphia phillies
+      - phillies
+      - phi
+      - philadelphia
+      - philly
+  - key: mlb_pittsburgh_pirates
+    name: Pittsburgh Pirates
+    city: Pittsburgh, PA
+    abbrev: PIT
+    lat: 40.4406
+    lon: -79.9959
+    aliases:
+      - pittsburgh pirates
+      - pirates
+      - pit
+      - pittsburgh
+  - key: mlb_san_diego_padres
+    name: San Diego Padres
+    city: San Diego, CA
+    abbrev: SD
+    lat: 32.7157
+    lon: -117.1611
+    aliases:
+      - san diego padres
+      - padres
+      - sd
+      - san diego
+  - key: mlb_san_francisco_giants
+    name: San Francisco Giants
+    city: San Francisco, CA
+    abbrev: SF
+    lat: 37.7749
+    lon: -122.4194
+    aliases:
+      - san francisco giants
+      - giants
+      - sf
+      - san francisco
+  - key: mlb_seattle_mariners
+    name: Seattle Mariners
+    city: Seattle, WA
+    abbrev: SEA
+    lat: 47.6062
+    lon: -122.3321
+    aliases:
+      - seattle mariners
+      - mariners
+      - sea
+      - seattle
+  - key: mlb_st_louis_cardinals
+    name: St. Louis Cardinals
+    city: St. Louis, MO
+    abbrev: STL
+    lat: 38.6270
+    lon: -90.1994
+    aliases:
+      - st. louis cardinals
+      - st louis cardinals
+      - cardinals
+      - stl
+      - st louis
+  - key: mlb_tampa_bay_rays
+    name: Tampa Bay Rays
+    city: Tampa, FL
+    abbrev: TB
+    lat: 27.9506
+    lon: -82.4572
+    aliases:
+      - tampa bay rays
+      - rays
+      - tb
+      - tampa bay
+  - key: mlb_texas_rangers
+    name: Texas Rangers
+    city: Arlington, TX
+    abbrev: TEX
+    lat: 32.7357
+    lon: -97.1081
+    aliases:
+      - texas rangers
+      - rangers
+      - tex
+      - texas
+      - arlington
+  - key: mlb_toronto_blue_jays
+    name: Toronto Blue Jays
+    city: Toronto, ON
+    abbrev: TOR
+    lat: 43.6532
+    lon: -79.3832
+    aliases:
+      - toronto blue jays
+      - blue jays
+      - jays
+      - tor
+      - toronto
+  - key: mlb_washington_nationals
+    name: Washington Nationals
+    city: Washington, DC
+    abbrev: WAS
+    lat: 38.9072
+    lon: -77.0369
+    aliases:
+      - washington nationals
+      - nationals
+      - nats
+      - was
+      - washington
