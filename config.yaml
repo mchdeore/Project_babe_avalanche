@@ -191,6 +191,21 @@ insights_generator:
   espn:
     cache_hours: 24
   
+  # AI scoring system (run: cli.py score)
+  scoring:
+    weights:
+      injury: 0.25
+      weather: 0.10
+      news_momentum: 0.15
+      market_momentum: 0.20
+      provider_lag: 0.20
+      lineup: 0.10
+    lookback_hours: 72
+    max_severity: 5
+    outdoor_leagues:
+      - americanfootball_nfl
+      - baseball_mlb
+
   # ML pipeline (run: cli.py train / predict)
   ml:
     min_training_samples: 1000

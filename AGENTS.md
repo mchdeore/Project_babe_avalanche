@@ -7,16 +7,18 @@ Provide project-specific guidance so changes stay consistent with the repo’s a
 See `CONTRIBUTING.md` for repo-wide standards and workflow expectations.
 
 **Project Summary**
-Python-based sports betting arbitrage/middle detection pipeline that ingests odds from multiple sources and stores them in a SQLite database for analysis and detection.
+Python-based sports betting arbitrage/middle detection pipeline with an embedded insights generator (news scraping, NLP extraction, lag detection, and ML line-move prediction). Data is stored in SQLite for analysis and detection.
 
 **Environment**
 - Python 3.10+
 - Virtualenv in `.venv`
-- Dependencies in `requirements.txt`
+- Core dependencies in `requirements.txt`
+- Insights dependencies in `insights_generator/requirements.txt`
 
 **Setup**
 - Create venv: `python -m venv .venv && source .venv/bin/activate`
-- Install deps: `pip install -r requirements.txt`
+- Install core deps: `pip install -r requirements.txt`
+- Install insights deps (if using insights_generator): `pip install -r insights_generator/requirements.txt`
 - Configure API keys in `.env`
 
 **Runtime Commands**
@@ -25,26 +27,40 @@ Python-based sports betting arbitrage/middle detection pipeline that ingests odd
 - Ingest Kalshi: `python services/ingest_kalshi.py`
 - Ingest STX: `python services/ingest_stx.py`
 - Detect opportunities: `python services/detect_opportunities.py`
+- Insights: scrape news `python -m insights_generator.cli scrape`
+- Insights: analyze headlines `python -m insights_generator.cli analyze`
+- Insights: detect lag `python -m insights_generator.cli detect-lag`
+- Insights: event impacts `python -m insights_generator.cli event-impacts`
+- Insights: train model `python -m insights_generator.cli train`
+- Insights: predict `python -m insights_generator.cli predict`
+- Insights: status `python -m insights_generator.cli status`
+- Insights: init tables `python -m insights_generator.cli init-db`
+
+**Plan History**
+Always read `plan_history/README.md` and the most recent entry in `plan_history/` at the start of each session. Each `.txt` file documents one plan/task with timestamped changes. When you complete work that changes behavior, schema, or workflows, create a new `.txt` file in that folder (never append to another agent's file). Include decisions, assumptions, and any commands/tests run.
 
 **Key Files**
 - `schema.sql`: SQLite schema definition
 - `utils.py`: DB init, upserts, history inserts, helper utilities
-- `sources/`: Ingestion adapter logic
-- `services/`: One-shot workers per source + detection
+- `adapters/`: Ingestion adapter logic (Odds API, Polymarket, Kalshi, STX)
+- `services/`: One-shot workers per source + detection daemon
 - `payment_methods/`: Transaction and funding logic (trading, deposits/withdrawals)
 - `services/detect_opportunities.py`: Arbitrage + middle detection algorithms and detector entrypoint
-- `config.yaml`: Source/market configuration
+- `insights_generator/`: NLP analysis, ML pipeline, news scraping, lag detection
+- `insights_generator/cli.py`: CLI for insights features (`scrape`, `analyze`, `detect-lag`, `event-impacts`, `train`, `predict`, `status`, `init-db`)
+- `config.yaml`: Source/market/insights configuration
 
 **Database Notes**
 - SQLite database file: `odds.db`
 - SQLite sidecar files (`odds.db-wal`, `odds.db-shm`) are normal and ignored by git
-- Schema changes should be made in `schema.sql`. If you change schema, you may need to delete `odds.db*` to reinitialize via `utils.init_db`
+- Schema changes should be made in `schema.sql` (core) or `insights_generator/schema.sql` (insights). If you change schema, you may need to delete `odds.db*` to reinitialize via `utils.init_db`
 - Core tables: `games`, `market_latest`, `market_history`, `outcomes`
+- Insights tables: `news_headlines`, `structured_events`, `market_lag_signals`, `event_market_impacts`, `ml_predictions`
 
 **Workflow Expectations**
 - Prefer updating `schema.sql` and `utils.py` together when database behavior changes
 - Avoid committing secrets in `.env`
-- When adding new sources or markets, update `config.yaml` and add a new module under `sources/`
+- When adding new sources or markets, update `config.yaml` and add a new module under `adapters/` plus a worker in `services/`
 
 **Testing**
 - No automated test suite is defined. Validate changes by running one of the workers or the detector.

@@ -97,6 +97,7 @@ def build_feature_matrix(
             mh.game_id,
             mh.market,
             mh.side,
+            mh.line,
             mh.provider,
             mh.devigged_prob,
             mh.snapshot_time,
@@ -142,6 +143,11 @@ def build_feature_matrix(
             # Time-series features
             features = _calculate_timeseries_features(history, current)
             
+            # Provider spread: max disagreement with other providers at this snapshot
+            features["provider_spread"] = _calculate_provider_spread(
+                df, game_id, market, side, provider, current["snapshot_time"],
+            )
+            
             # Add time to game
             if pd.notna(current["commence_time"]):
                 hours_to_game = (current["commence_time"] - current["snapshot_time"]).total_seconds() / 3600
@@ -158,6 +164,13 @@ def build_feature_matrix(
                 current["snapshot_time"],
             )
             features.update(structured)
+            
+            # Merge AI scoring dimensions if available
+            try:
+                from insights_generator.scoring import get_score_features
+                features.update(get_score_features(conn, game_id))
+            except Exception:
+                pass
             
             # Calculate target (future price movement)
             target = _calculate_target(
@@ -242,6 +255,51 @@ def _calculate_timeseries_features(
     features["uncertainty"] = abs(current["devigged_prob"] - 0.5)
     
     return features
+
+
+def _calculate_provider_spread(
+    df: "pd.DataFrame",
+    game_id: str,
+    market: str,
+    side: str,
+    provider: str,
+    snapshot_time: "pd.Timestamp",
+) -> float:
+    """
+    Compute max absolute spread between this provider and others for the same
+    (game_id, market, side) at the closest snapshot to ``snapshot_time``.
+    """
+    same_market = df[
+        (df["game_id"] == game_id)
+        & (df["market"] == market)
+        & (df["side"] == side)
+        & (df["provider"] != provider)
+    ]
+    if same_market.empty:
+        return 0.0
+
+    # For each other provider, take the most recent snapshot <= current time
+    latest = (
+        same_market[same_market["snapshot_time"] <= snapshot_time]
+        .sort_values("snapshot_time")
+        .groupby("provider")
+        .tail(1)
+    )
+    if latest.empty:
+        return 0.0
+
+    current_prob = df[
+        (df["game_id"] == game_id)
+        & (df["market"] == market)
+        & (df["side"] == side)
+        & (df["provider"] == provider)
+        & (df["snapshot_time"] == snapshot_time)
+    ]["devigged_prob"]
+
+    if current_prob.empty:
+        return 0.0
+
+    return float((latest["devigged_prob"] - current_prob.iloc[0]).abs().max())
 
 
 def _get_structured_features(
@@ -625,23 +683,60 @@ def evaluate_model(
     
     correct = 0
     total = 0
-    errors = []
+    abs_errors = []
+    now = datetime.now(timezone.utc).isoformat()
     
     for row in rows:
         pred_move = row["predicted_move"]
         pred_direction = row["predicted_direction"]
         
-        # Calculate actual move (we'd need to get the price at prediction time too)
-        # This is simplified - in practice you'd need the original price
-        actual_direction = "up" if row["actual_prob"] > 0.5 else "down"
+        # Recover original probability from stored features
+        original_prob = None
+        if row["features_json"]:
+            try:
+                feats = json.loads(row["features_json"])
+                original_prob = feats.get("current_prob")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        if original_prob is None:
+            continue
+        
+        actual_move = row["actual_prob"] - original_prob
+        actual_direction = (
+            "up" if actual_move > 0.01
+            else ("down" if actual_move < -0.01 else "stable")
+        )
         
         if pred_direction == actual_direction:
             correct += 1
         
+        abs_errors.append(abs(pred_move - actual_move))
         total += 1
+        
+        # Back-fill outcome columns
+        try:
+            conn.execute("""
+                UPDATE ml_predictions
+                SET actual_move = ?, actual_direction = ?,
+                    outcome_recorded_at = ?,
+                    prediction_correct = ?
+                WHERE id = ?
+            """, (
+                actual_move,
+                actual_direction,
+                now,
+                1 if pred_direction == actual_direction else 0,
+                row["id"],
+            ))
+        except sqlite3.Error:
+            pass
+    
+    conn.commit()
     
     return {
         "predictions_evaluated": total,
         "accuracy": correct / total if total > 0 else None,
+        "mae": sum(abs_errors) / len(abs_errors) if abs_errors else None,
         "correct_predictions": correct,
     }

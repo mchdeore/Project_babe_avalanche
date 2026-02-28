@@ -39,6 +39,7 @@ Examples:
 """
 
 import argparse
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +55,7 @@ from insights_generator.config import (
     get_ml_config,
     get_news_sources,
     get_ollama_config,
+    get_scoring_config,
     init_insights_db,
     is_enabled,
     validate_config,
@@ -118,7 +120,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     Returns:
         int: Exit code (0=success, 1=error)
     """
-    from insights_generator.analyzers.nlp_processor import process_headlines
+    from insights_generator.scrapers.news_scraper import get_unprocessed_headlines
     
     print("=" * 60)
     print("INSIGHTS GENERATOR - NLP ANALYZER")
@@ -131,10 +133,41 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     print(f"Ollama host: {ollama_config['ollama_host']}")
     print(f"Batch size: {batch_size}")
     
-    print("\nProcessing headlines...")
-    
     conn = init_insights_db()
     try:
+        if args.dry_run:
+            headlines = get_unprocessed_headlines(conn, limit=batch_size)
+            print(f"\n[DRY RUN] {len(headlines)} headlines queued for processing:")
+            for h in headlines[:20]:
+                print(f"  - [{h.get('source', '?')}] {h['headline'][:80]}")
+            if len(headlines) > 20:
+                print(f"  ... and {len(headlines) - 20} more")
+            return 0
+
+        # Check Ollama connectivity before processing
+        import requests
+        try:
+            resp = requests.get(
+                f"{ollama_config['ollama_host'].rstrip('/')}/api/tags",
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                raise ConnectionError()
+        except Exception:
+            queued = get_unprocessed_headlines(conn, limit=1)
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM news_headlines WHERE processed = 0"
+            )
+            total_queued = cursor.fetchone()[0]
+            print(f"\nERROR: Cannot reach Ollama at {ollama_config['ollama_host']}")
+            print("Make sure Ollama is running: ollama serve")
+            print(f"\n{total_queued} headline(s) queued and waiting.")
+            print("Use --dry-run to see what would be processed.")
+            return 1
+
+        print("\nProcessing headlines...")
+
+        from insights_generator.analyzers.nlp_processor import process_headlines
         results = process_headlines(
             conn,
             model=ollama_config["ollama_model"],
@@ -246,6 +279,48 @@ def cmd_event_impacts(args: argparse.Namespace) -> int:
         print("RESULTS:")
         print("-" * 40)
         print(f"  Impacts computed: {len(impacts)}")
+    finally:
+        conn.close()
+
+    return 0
+
+
+def cmd_score(args: argparse.Namespace) -> int:
+    """Score all upcoming games using the AI scoring system."""
+    from insights_generator.scoring import score_all_upcoming
+
+    print("=" * 60)
+    print("INSIGHTS GENERATOR - AI SCORING")
+    print("=" * 60)
+
+    cfg = get_scoring_config()
+    print(f"\nWeights: {cfg.get('weights', {})}")
+    print(f"Lookback: {cfg.get('lookback_hours', 72)} hours")
+
+    conn = init_insights_db()
+    try:
+        scores = score_all_upcoming(conn)
+
+        print("\n" + "-" * 40)
+        print("RESULTS:")
+        print("-" * 40)
+        print(f"  Games scored: {len(scores)}")
+
+        if scores:
+            print(f"\n  {'GAME':<45} {'COMP':>5}  {'INJ':>4} {'WX':>4} {'NEWS':>4} {'MKT':>4} {'LAG':>4} {'LU':>4}")
+            print("  " + "-" * 79)
+            for gs in scores[:15]:
+                label = f"{gs.away_team} @ {gs.home_team}"
+                if len(label) > 44:
+                    label = label[:41] + "..."
+                print(
+                    f"  {label:<45} {gs.composite_score:>5.3f}"
+                    f"  {gs.injury_score:>4.2f} {gs.weather_score:>4.2f}"
+                    f" {gs.news_momentum_score:>4.2f} {gs.market_momentum_score:>4.2f}"
+                    f" {gs.provider_lag_score:>4.2f} {gs.lineup_score:>4.2f}"
+                )
+            if len(scores) > 15:
+                print(f"\n  ... and {len(scores) - 15} more games")
     finally:
         conn.close()
 
@@ -448,6 +523,15 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"\nEvent Impacts:")
         print(f"  Total: {total_impacts}")
         
+        # Count game scores
+        try:
+            cursor = conn.execute("SELECT COUNT(*) FROM game_scores")
+            total_scores = cursor.fetchone()[0]
+            print(f"\nGame Scores:")
+            print(f"  Total: {total_scores}")
+        except sqlite3.Error:
+            pass
+
         # Count predictions
         cursor = conn.execute("SELECT COUNT(*) FROM ml_predictions")
         total_predictions = cursor.fetchone()[0]
@@ -501,7 +585,9 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     print("  - news_headlines")
     print("  - structured_events")
     print("  - market_lag_signals")
+    print("  - event_market_impacts")
     print("  - ml_predictions")
+    print("  - game_scores")
     
     return 0
 
@@ -538,6 +624,11 @@ Examples:
         "--batch-size", "-b",
         type=int,
         help="Number of headlines to process (default: from config)",
+    )
+    analyze_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show queued headlines without calling Ollama",
     )
     
     # detect-lag command
@@ -585,6 +676,9 @@ Examples:
         help="Model type to train (default: xgboost)",
     )
     
+    # score command
+    score_parser = subparsers.add_parser("score", help="Score all upcoming games with AI scoring system")
+
     # predict command
     predict_parser = subparsers.add_parser("predict", help="Run predictions on current data")
     
@@ -612,6 +706,7 @@ Examples:
         "analyze": cmd_analyze,
         "detect-lag": cmd_detect_lag,
         "event-impacts": cmd_event_impacts,
+        "score": cmd_score,
         "train": cmd_train,
         "predict": cmd_predict,
         "status": cmd_status,

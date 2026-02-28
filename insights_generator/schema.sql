@@ -287,3 +287,38 @@ CREATE INDEX IF NOT EXISTS idx_predictions_time
 -- Index for finding predictions needing outcome updates
 CREATE INDEX IF NOT EXISTS idx_predictions_pending 
     ON ml_predictions(outcome_recorded_at) WHERE outcome_recorded_at IS NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- GAME_SCORES TABLE
+-- -----------------------------------------------------------------------------
+-- Composite AI scores per game, computed by insights_generator/scoring.py.
+-- Primary key on (game_id, scored_at) to track score evolution over time.
+
+CREATE TABLE IF NOT EXISTS game_scores (
+    game_id                 TEXT NOT NULL,
+    scored_at               TEXT NOT NULL,
+
+    -- Individual scoring dimensions (each 0.0-1.0)
+    injury_score            REAL NOT NULL DEFAULT 0.0,
+    weather_score           REAL NOT NULL DEFAULT 0.0,
+    news_momentum_score     REAL NOT NULL DEFAULT 0.0,
+    market_momentum_score   REAL NOT NULL DEFAULT 0.0,
+    provider_lag_score      REAL NOT NULL DEFAULT 0.0,
+    lineup_score            REAL NOT NULL DEFAULT 0.0,
+
+    -- Weighted composite
+    composite_score         REAL NOT NULL DEFAULT 0.0,
+
+    -- Config snapshot for reproducibility
+    config_json             TEXT,
+
+    PRIMARY KEY (game_id, scored_at),
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_scores_composite
+    ON game_scores(composite_score DESC);
+
+CREATE INDEX IF NOT EXISTS idx_game_scores_time
+    ON game_scores(scored_at);

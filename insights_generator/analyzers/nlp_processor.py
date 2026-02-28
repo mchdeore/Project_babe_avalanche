@@ -238,15 +238,23 @@ def _call_ollama(
         
     except requests.exceptions.ConnectionError:
         print(f"ERROR: Cannot connect to Ollama at {host}")
-        print("Make sure Ollama is running: ollama serve")
+        print("  Ollama is not installed or not running on this machine.")
+        print("  Install: https://ollama.ai  |  Start: ollama serve")
+        print("  Headlines will queue until Ollama is available.")
         return None
         
     except requests.exceptions.Timeout:
         print(f"ERROR: Ollama request timed out after {timeout}s")
+        print("  The model may still be loading. Try again shortly.")
         return None
         
     except requests.exceptions.HTTPError as e:
-        print(f"ERROR: Ollama HTTP error: {e}")
+        status = getattr(e.response, "status_code", None)
+        if status == 404:
+            print(f"ERROR: Ollama model '{model}' not found.")
+            print(f"  Pull it first: ollama pull {model}")
+        else:
+            print(f"ERROR: Ollama HTTP error: {e}")
         return None
         
     except Exception as e:

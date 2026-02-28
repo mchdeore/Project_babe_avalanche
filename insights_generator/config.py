@@ -114,6 +114,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cache_hours": 24,
     },
     
+    "scoring": {
+        "weights": {
+            "injury": 0.25,
+            "weather": 0.10,
+            "news_momentum": 0.15,
+            "market_momentum": 0.20,
+            "provider_lag": 0.20,
+            "lineup": 0.10,
+        },
+        "lookback_hours": 72,
+        "max_severity": 5,
+        "outdoor_leagues": [
+            "americanfootball_nfl",
+            "baseball_mlb",
+        ],
+    },
+
     "ml": {
         "min_training_samples": 1000,
         "model_path": "insights_generator/trained_model.pkl",
@@ -259,6 +276,17 @@ def get_espn_config() -> dict[str, Any]:
     """
     config = get_config()
     return config.get("espn", DEFAULT_CONFIG["espn"])
+
+
+def get_scoring_config() -> dict[str, Any]:
+    """
+    Get AI scoring configuration.
+
+    Returns:
+        dict: Scoring config with weights, lookback, and league settings
+    """
+    config = get_config()
+    return config.get("scoring", DEFAULT_CONFIG["scoring"])
 
 
 def get_ml_config() -> dict[str, Any]:
