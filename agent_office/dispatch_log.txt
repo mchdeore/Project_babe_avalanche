@@ -1,0 +1,24 @@
+# Dispatch Log
+#
+# One-line entry per completed task. Gives a quick overview of who did what and when.
+# Append a new line at the bottom when you finish work. Never edit existing lines.
+#
+# FORMAT:
+# YYYY-MM-DD | <agent> <device> | <what you did briefly> | <plan file name or "n/a">
+#
+# EXAMPLES:
+# 2026-02-28 | cursor mac | bootstrapped insights ML pipeline, scoring system, bug fixes | 2026-02-28_insights-ml-pipeline.txt
+# 2026-03-01 | codex pc | fixed polymarket slug pagination bug | 2026-03-01_fix-polymarket-slugs.txt
+# 2026-03-02 | cursor laptop | added NHL player props to config | n/a
+#
+# RULES:
+# - One line per task, keep it short (the plan .txt has the details)
+# - Always append, never edit or delete existing lines
+# - <agent> is the LLM tool: cursor, codex, copilot, claude, etc.
+# - <device> is the machine: mac, pc, laptop, server, etc.
+# - <plan file> references the detailed plan history .txt, or "n/a" for small changes
+#
+# --------------------------------------------------------------------------------------------
+# DATE       | AGENT + DEVICE   | SUMMARY                                          | PLAN FILE
+# --------------------------------------------------------------------------------------------
+2026-02-28 | cursor mac | bootstrapped insights ML pipeline: deps, DB init, scoring system, feature bug fixes, CLI commands, Ollama graceful handling | 2026-02-28_insights-ml-pipeline.txt

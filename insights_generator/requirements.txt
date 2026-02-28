@@ -2,6 +2,13 @@
 # INSIGHTS GENERATOR - DEPENDENCIES
 # =============================================================================
 # Install with: pip install -r insights_generator/requirements.txt
+#
+# NOTE FOR AGENTS:
+#   Before working on this module, read agent_office/README.md and check
+#   agent_office/active_tasks/ for any claimed files.  When done, delete
+#   your claim, write a plan history .txt, and append to dispatch_log.txt.
+#
+# macOS note: xgboost requires libomp (brew install libomp)
 
 # RSS feed parsing
 feedparser>=6.0.0

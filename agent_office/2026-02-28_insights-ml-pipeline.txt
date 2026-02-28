@@ -94,7 +94,9 @@ CHANGES:
   - Timeout: suggests model may still be loading
   - 404 HTTPError: suggests running "ollama pull <model>"
 
-[2026-02-28] [infra] Created plan_history/ folder
-  - Files: plan_history/README.md, plan_history/2026-02-28_insights-ml-pipeline.txt
-  - Convention: one .txt file per plan, timestamped changes, enough detail for
+[2026-02-28] [infra] Created agent_office/ folder
+  - Files: agent_office/README.md, agent_office/active_tasks/, agent_office/2026-02-28_insights-ml-pipeline.txt
+  - Plan history: one .txt file per plan, timestamped changes, enough detail for
     any LLM to cold-start with full context on what's been done
+  - Active tasks: claim files so concurrent agents don't edit the same files
+  - Cross-machine: works via git commit/push to sync claims and history

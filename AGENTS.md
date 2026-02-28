@@ -36,8 +36,14 @@ Python-based sports betting arbitrage/middle detection pipeline with an embedded
 - Insights: status `python -m insights_generator.cli status`
 - Insights: init tables `python -m insights_generator.cli init-db`
 
-**Plan History**
-Always read `plan_history/README.md` and the most recent entry in `plan_history/` at the start of each session. Each `.txt` file documents one plan/task with timestamped changes. When you complete work that changes behavior, schema, or workflows, create a new `.txt` file in that folder (never append to another agent's file). Include decisions, assumptions, and any commands/tests run.
+**Agent Office (read this first every session)**
+The `agent_office/` folder is the shared workspace for agent coordination. At the start of every session:
+1. Read `agent_office/README.md` for the full protocol
+2. Read `agent_office/dispatch_log.txt` for a quick overview of all work done on this repo
+3. Check `agent_office/active_tasks/` for any currently claimed work -- do not modify files another agent has claimed
+4. Skim the most recent `.txt` plan history files in `agent_office/` for context on recent changes
+5. Before starting work, create a claim file in `agent_office/active_tasks/<your-id>.md` listing what you're doing and which files you'll touch
+6. When done: delete your claim, write a plan history `.txt`, append one line to `dispatch_log.txt`, and commit
 
 **Key Files**
 - `schema.sql`: SQLite schema definition
