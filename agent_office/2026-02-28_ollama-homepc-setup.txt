@@ -1,0 +1,227 @@
+PLAN: Ollama + Home PC Multi-Agent Setup
+DATE: 2026-02-28
+STATUS: pending
+MACHINE: home-pc (target)
+
+CONTEXT:
+The project uses an orchestration system where Cursor on the laptop acts as
+the mastermind/project manager, and Codex/Claude Code workers execute tasks.
+The home PC (6 cores / 12 threads, 3.5GHz base, 16GB DDR4 2400MHz RAM, no
+storage restrictions) will run Ollama for the NLP pipeline and multiple Claude
+Code agents in parallel for faster development.
+
+================================================================================
+SETUP GUIDE — HOME PC (Windows)
+================================================================================
+
+PREREQUISITES TO INSTALL:
+  1. Git              — https://git-scm.com (pick "Git from command line" option)
+  2. Python 3.10+     — https://python.org (CHECK "Add Python to PATH" during install)
+  3. Node.js 18+      — https://nodejs.org (needed for Claude Code)
+  4. VS Code          — https://code.visualstudio.com
+  5. Ollama           — https://ollama.com (installs as a Windows app/service)
+
+--------------------------------------------------------------------------------
+STEP 1: CLONE THE REPO
+--------------------------------------------------------------------------------
+
+Open PowerShell or VS Code terminal:
+
+    cd C:\Users\YourName\Documents
+    git clone <your-repo-url> Project_babe_avalanche
+    cd Project_babe_avalanche
+
+--------------------------------------------------------------------------------
+STEP 2: PYTHON ENVIRONMENT
+--------------------------------------------------------------------------------
+
+    python -m venv .venv
+
+    # Activate (PowerShell):
+    .venv\Scripts\Activate.ps1
+
+    # Or Command Prompt:
+    .venv\Scripts\activate.bat
+
+    # Install all deps:
+    pip install -r requirements.txt
+    pip install -r insights_generator/requirements.txt
+
+NOTE: On Windows, xgboost should install without the libomp issue that macOS has.
+
+--------------------------------------------------------------------------------
+STEP 3: COPY .env FILE
+--------------------------------------------------------------------------------
+
+The .env file contains API keys and is NOT tracked by git. You must manually
+copy it from the laptop to the home PC.
+
+Option A: Open .env on the laptop, copy contents, create .env on home PC, paste.
+Option B: Use a secure transfer method (USB, encrypted email, etc.)
+
+The file goes in the project root: Project_babe_avalanche/.env
+
+--------------------------------------------------------------------------------
+STEP 4: INSTALL AND CONFIGURE OLLAMA
+--------------------------------------------------------------------------------
+
+After installing Ollama from https://ollama.com:
+
+    # Pull the recommended model (3B fits your 16GB RAM with room for agents):
+    ollama pull llama3.2:3b
+
+    # Verify it's running:
+    ollama list
+
+Ollama runs as a background service on Windows automatically. It listens on
+http://localhost:11434 which matches the project config.
+
+IMPORTANT — UPDATE config.yaml TO USE THE 3B MODEL:
+
+    Open config.yaml, find the insights_generator > nlp section, change:
+
+        ollama_model: "llama3.2"
+
+    To:
+
+        ollama_model: "llama3.2:3b"
+
+    Commit this change or keep it local (if the laptop should stay on the
+    full 8B model, keep it as a local-only change and don't commit).
+
+WHY 3B AND NOT 8B:
+  - 8B model needs ~6-7GB RAM at Q4 quantization
+  - With 3 Claude Code agents + VS Code + Python running, you'd hit ~16GB and swap
+  - 3B model needs ~4GB, leaving ~8GB headroom for everything else
+  - Extraction quality is very similar for structured JSON tasks (injuries, weather, etc.)
+
+IF YOU WANT TO TEST 8B ANYWAY:
+    ollama pull llama3.2
+    # Run the pipeline while nothing else is heavy, watch Task Manager for RAM usage
+    # If total stays under ~12GB, you can keep 8B
+    # If it gets sluggish with agents running, switch back to 3B
+
+TO FREE OLLAMA RAM WHEN NOT IN USE:
+    ollama stop llama3.2:3b
+
+It reloads automatically on next pipeline call.
+
+--------------------------------------------------------------------------------
+STEP 5: INSTALL CLAUDE CODE
+--------------------------------------------------------------------------------
+
+    npm install -g @anthropic-ai/claude-code
+
+First run will prompt for your Anthropic API key:
+
+    claude
+    # Enter your API key when prompted
+
+To verify it works:
+
+    claude "Say hello"
+
+--------------------------------------------------------------------------------
+STEP 6: TEST THE PIPELINE
+--------------------------------------------------------------------------------
+
+    # Make sure venv is activated
+    .venv\Scripts\Activate.ps1
+
+    # Initialize the database:
+    python -m insights_generator.cli init-db
+
+    # Test scraping (pulls RSS headlines):
+    python -m insights_generator.cli scrape
+
+    # Test Ollama analysis (processes headlines through local LLM):
+    python -m insights_generator.cli analyze
+
+    # Test scoring:
+    python -m insights_generator.cli score
+
+    # Check status (should show counts in all tables):
+    python -m insights_generator.cli status
+
+If all of these work, the pipeline is live on the home PC.
+
+--------------------------------------------------------------------------------
+STEP 7: RUN MULTI-AGENT WORKFLOW
+--------------------------------------------------------------------------------
+
+Open VS Code with the project. Open 3 terminals (Ctrl+Shift+` to open terminal,
+click the + button to add more).
+
+Before launching agents, always pull latest:
+
+    git pull
+
+TERMINAL 1 — WORKER ALPHA:
+
+    claude "You are Worker Alpha on an orchestrated team. Read agent_office/task_board.md, find the task labeled ALPHA under Current Round, and execute it. Follow agent_office/README.md for the collaboration protocol. Stay within your task's file scope. When done: write a plan history .txt, append to dispatch_log.txt, then git add and commit."
+
+TERMINAL 2 — WORKER BRAVO:
+
+    claude "You are Worker Bravo on an orchestrated team. Read agent_office/task_board.md, find the task labeled BRAVO under Current Round, and execute it. Follow agent_office/README.md for the collaboration protocol. Stay within your task's file scope. When done: write a plan history .txt, append to dispatch_log.txt, then git add and commit."
+
+TERMINAL 3 — WORKER CHARLIE:
+
+    claude "You are Worker Charlie on an orchestrated team. Read agent_office/task_board.md, find the task labeled CHARLIE under Current Round, and execute it. Follow agent_office/README.md for the collaboration protocol. Stay within your task's file scope. When done: write a plan history .txt, append to dispatch_log.txt, then git add and commit."
+
+Let all 3 finish, then push:
+
+    git push
+
+--------------------------------------------------------------------------------
+DAILY WORKFLOW
+--------------------------------------------------------------------------------
+
+1. On the LAPTOP — tell Cursor (orchestrator): "Plan round N"
+2. Cursor writes tasks to task_board.md → you commit and push
+3. On the HOME PC — git pull
+4. Launch 3 Claude Code workers in separate terminals (commands above)
+5. They work in parallel, each on their own scoped task
+6. When all done — git push
+7. On the LAPTOP — git pull → tell Cursor "Round N done, review it"
+8. Cursor reviews dispatch_log + plan history → plans next round
+9. Repeat
+
+--------------------------------------------------------------------------------
+RAM MONITORING TIP
+--------------------------------------------------------------------------------
+
+Open Task Manager (Ctrl+Shift+Esc) and keep the Performance tab visible.
+Watch "Memory" usage during agent runs. Target: stay under 14GB total.
+
+If memory gets tight:
+  - Finish current agent tasks, then unload Ollama: ollama stop llama3.2:3b
+  - Or reduce to 2 agents instead of 3
+  - Or switch to the 3B model if you tried 8B
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING
+--------------------------------------------------------------------------------
+
+"ollama: command not found"
+  → Ollama didn't add to PATH. Restart terminal, or add manually.
+
+"Cannot reach Ollama at http://localhost:11434"
+  → Ollama service not running. Open Ollama app, or run: ollama serve
+
+"model not found"
+  → Pull it: ollama pull llama3.2:3b
+
+"claude: command not found"
+  → Node.js not in PATH, or npm global bin not in PATH. Try:
+    npm config get prefix    (shows where global bins go)
+    Add that path\bin to your system PATH.
+
+"pip install fails for xgboost"
+  → On Windows this is rare, but try: pip install xgboost --no-cache-dir
+
+Python venv not activating in PowerShell:
+  → Run once: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  → Then retry: .venv\Scripts\Activate.ps1
+
+Git push rejected (someone else pushed first):
+  → git pull --rebase && git push
