@@ -22,3 +22,4 @@
 # DATE       | AGENT + DEVICE   | SUMMARY                                          | PLAN FILE
 # --------------------------------------------------------------------------------------------
 2026-02-28 | cursor mac | bootstrapped insights ML pipeline: deps, DB init, scoring system, feature bug fixes, CLI commands, Ollama graceful handling | 2026-02-28_insights-ml-pipeline.txt
+2026-02-28 | cursor laptop-local | set up orchestration system: task_board.md, worker roster (Alpha/Bravo/Charlie), briefings, updated README + AGENTS.md | 2026-02-28_orchestration-setup.txt

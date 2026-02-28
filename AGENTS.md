@@ -39,11 +39,15 @@ Python-based sports betting arbitrage/middle detection pipeline with an embedded
 **Agent Office (read this first every session)**
 The `agent_office/` folder is the shared workspace for agent coordination. At the start of every session:
 1. Read `agent_office/README.md` for the full protocol
-2. Read `agent_office/dispatch_log.txt` for a quick overview of all work done on this repo
-3. Check `agent_office/active_tasks/` for any currently claimed work -- do not modify files another agent has claimed
-4. Skim the most recent `.txt` plan history files in `agent_office/` for context on recent changes
-5. Before starting work, create a claim file in `agent_office/active_tasks/<your-id>.md` listing what you're doing and which files you'll touch
-6. When done: delete your claim, write a plan history `.txt`, append one line to `dispatch_log.txt`, and commit
+2. Read `agent_office/task_board.md` — check if you have an assigned task from the orchestrator
+3. Read `agent_office/dispatch_log.txt` for a quick overview of all work done on this repo
+4. Check `agent_office/active_tasks/` for any currently claimed work — do not modify files another agent has claimed
+5. Skim the most recent `.txt` plan history files in `agent_office/` for context on recent changes
+6. Before starting work, create a claim file in `agent_office/active_tasks/<your-id>.md` listing what you're doing and which files you'll touch
+7. When done: delete your claim, write a plan history `.txt`, append one line to `dispatch_log.txt`, and commit
+
+**If you are a Worker (Alpha, Bravo, or Charlie):**
+You are part of an orchestrated team. Read `agent_office/task_board.md` to find your assigned task. Execute ONLY that task within the listed file scope. Do NOT edit `task_board.md` — only the orchestrator writes there.
 
 **Key Files**
 - `schema.sql`: SQLite schema definition

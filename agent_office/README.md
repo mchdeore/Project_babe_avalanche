@@ -1,19 +1,20 @@
 # Agent Office
 
 Shared workspace for AI agents and humans collaborating on this repo. Contains
-three things: a **dispatch log**, **active task claims**, and **plan history**.
-Read this entire file at the start of every session.
+four things: a **task board** (orchestration), a **dispatch log**, **active task
+claims**, and **plan history**. Read this entire file at the start of every session.
 
 ---
 
 ## Quick Start (do this every time)
 
-1. Read `dispatch_log.txt` -- quick overview of all work ever done on this repo.
-2. Read `active_tasks/` -- check if any agent is currently working on something
+1. Read `task_board.md` -- check if you have an assigned task from the orchestrator.
+2. Read `dispatch_log.txt` -- quick overview of all work ever done on this repo.
+3. Read `active_tasks/` -- check if any agent is currently working on something
    that overlaps with what you're about to do.
-3. Skim the most recent plan history `.txt` files for context on recent changes.
-4. Before starting work, **claim your task** (see section 1 below).
-5. When done: **release your claim**, **write a plan history entry**, and
+4. Skim the most recent plan history `.txt` files for context on recent changes.
+5. Before starting work, **claim your task** (see section 1 below).
+6. When done: **release your claim**, **write a plan history entry**, and
    **append one line to `dispatch_log.txt`**.
 
 ---
@@ -194,11 +195,45 @@ If two agents on different machines need to work simultaneously:
 
 ---
 
+## 4. Orchestration (Task Board)
+
+**Location:** `agent_office/task_board.md`
+
+This project uses a **mastermind orchestration model**:
+
+- **Orchestrator (Cursor):** Plans work, breaks it into scoped tasks, assigns
+  them to workers, reviews output, and plans the next round. Only the
+  orchestrator edits `task_board.md`.
+- **Workers (Codex instances):** Execute assigned tasks. Each worker has a
+  name (Alpha, Bravo, Charlie) and runs on a specific device.
+- **User (therealmc):** Acts as the message bus — copies task briefings from
+  the orchestrator to each worker device, reports completion back.
+
+### Workflow
+
+1. User asks the orchestrator to plan a round
+2. Orchestrator writes tasks to `task_board.md` (one per worker, non-overlapping)
+3. User pastes the briefing to each Codex instance on each device
+4. Workers: `git pull` → read task → claim → execute → report → commit + push
+5. User tells orchestrator when workers are done
+6. Orchestrator reviews output, plans next round
+
+### Rules for workers
+
+- Read `task_board.md` to find YOUR task (look for your worker name)
+- Stay within the file scope listed in your task — do not touch other files
+- Do NOT edit `task_board.md` — only the orchestrator writes there
+- Follow the active_tasks / plan history / dispatch_log protocol as usual
+- If blocked or confused, write a note in your plan history and stop
+
+---
+
 ## Folder Structure
 
 ```
 agent_office/
   README.md                              <-- you are here
+  task_board.md                          <-- orchestrator's task assignments
   dispatch_log.txt                       <-- one-line-per-task workforce overview
   active_tasks/                          <-- current work claims (ephemeral)
     <agent-id>.md                        <-- one per active agent session
